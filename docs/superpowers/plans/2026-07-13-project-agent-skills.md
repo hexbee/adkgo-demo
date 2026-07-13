@@ -254,7 +254,7 @@ git commit -m "feat: load project Agent Skills"
 - Verifies: official tool names, request processing, loaded instructions, and resource content
 - Verifies: immutable preloaded behavior under concurrent access
 
-- [ ] **Step 1: Add test-only ADK interfaces and context adapter**
+- [x] **Step 1: Add test-only ADK interfaces and context adapter**
 
 Add imports for `context`, `sort`, `sync`, `time`, `google.golang.org/adk/v2/agent`, and `google.golang.org/adk/v2/model`, then add:
 
@@ -297,7 +297,7 @@ func findRunnableTool(t *testing.T, result Result, name string) runnableTool {
 }
 ```
 
-- [ ] **Step 2: Add official tool and prompt-injection tests**
+- [x] **Step 2: Add official tool and prompt-injection tests**
 
 ```go
 func TestBuildExposesOfficialToolsAndCatalog(t *testing.T) {
@@ -341,7 +341,7 @@ func TestBuildExposesOfficialToolsAndCatalog(t *testing.T) {
 }
 ```
 
-- [ ] **Step 3: Add instruction and supported-resource tests**
+- [x] **Step 3: Add instruction and supported-resource tests**
 
 ```go
 func TestBuildPreloadsInstructionsAndResources(t *testing.T) {
@@ -388,11 +388,11 @@ func TestBuildPreloadsInstructionsAndResources(t *testing.T) {
 }
 ```
 
-- [ ] **Step 4: Add preloaded snapshot and concurrency tests**
+- [x] **Step 4: Add preloaded snapshot and concurrency tests**
 
 Build once, overwrite the original `SKILL.md`, then assert `load_skill` still returns the startup body. In a second test, start 20 goroutines that call `Toolset.Tools`, `ProcessRequest`, and `load_skill`; collect all returned errors and fail if any is non-nil. This proves the runtime uses the complete startup snapshot and remains safe under the race detector.
 
-- [ ] **Step 5: Verify and commit**
+- [x] **Step 5: Verify and commit**
 
 Run: `gofmt -w internal/skillsruntime/runtime_test.go && go test ./internal/skillsruntime -count=1 && go test -race ./internal/skillsruntime -count=1`
 
