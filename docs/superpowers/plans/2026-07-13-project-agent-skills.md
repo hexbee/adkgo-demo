@@ -43,7 +43,7 @@
 - Produces: `RelativeRoot`, `Result`, and `Build(ctx, projectRoot)`
 - Consumes: official `skill.Source` and `skilltoolset.SkillToolset`
 
-- [ ] **Step 1: Write failing discovery tests**
+- [x] **Step 1: Write failing discovery tests**
 
 Create `internal/skillsruntime/runtime_test.go` with filesystem helpers and the first four cases:
 
@@ -126,13 +126,13 @@ func TestBuildValidSkills(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Verify the tests fail**
+- [x] **Step 2: Verify the tests fail**
 
 Run: `go test ./internal/skillsruntime -run 'Build(Missing|Empty|Rejects|Valid)' -count=1`
 
 Expected: FAIL because `RelativeRoot` and `Build` are undefined.
 
-- [ ] **Step 3: Implement the official runtime construction path**
+- [x] **Step 3: Implement the official runtime construction path**
 
 Create `internal/skillsruntime/runtime.go`:
 
@@ -199,7 +199,7 @@ func Build(ctx context.Context, projectRoot string) (Result, error) {
 }
 ```
 
-- [ ] **Step 4: Add strict validation tests**
+- [x] **Step 4: Add strict validation tests**
 
 Append tests that deliberately write invalid `SKILL.md` files:
 
@@ -234,7 +234,7 @@ func TestBuildRejectsNameDirectoryMismatch(t *testing.T) {
 }
 ```
 
-- [ ] **Step 5: Verify and commit**
+- [x] **Step 5: Verify and commit**
 
 Run: `gofmt -w internal/skillsruntime/*.go && go test ./internal/skillsruntime -count=1`
 
