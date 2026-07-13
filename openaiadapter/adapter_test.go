@@ -2,12 +2,14 @@ package openaiadapter
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 
+	"github.com/openai/openai-go/v3"
 	"google.golang.org/adk/v2/model"
 	"google.golang.org/genai"
 )
@@ -88,11 +90,61 @@ func TestModelNonStreamingToolCall(t *testing.T) {
 		}
 		got = response
 	}
-	if got == nil || len(got.Content.Parts) != 1 || got.Content.Parts[0].FunctionCall.Name != "lookup_time" {
+	if got == nil || len(got.Content.Parts) != 2 {
 		t.Fatalf("response = %#v", got)
+	}
+	thought := got.Content.Parts[0]
+	call := got.Content.Parts[1].FunctionCall
+	if thought.Text != "checked inputs" || !thought.Thought {
+		t.Fatalf("thought = %#v", thought)
+	}
+	if call == nil || call.Name != "lookup_time" {
+		t.Fatalf("call = %#v", call)
 	}
 	if got.CustomMetadata["reasoning_content"] != "checked inputs" || got.UsageMetadata.TotalTokenCount != 14 {
 		t.Fatalf("metadata = %#v usage = %#v", got.CustomMetadata, got.UsageMetadata)
+	}
+}
+
+func TestFromCompletionOrdersThoughtTextAndToolCall(t *testing.T) {
+	completion := &openai.ChatCompletion{}
+	if err := json.Unmarshal([]byte(`{
+		"model":"m","choices":[{"finish_reason":"tool_calls","message":{
+			"role":"assistant","reasoning_content":"reason","content":"visible",
+			"tool_calls":[{"id":"call-1","type":"function","function":{"name":"lookup","arguments":"{}"}}]
+		}}],"usage":{"prompt_tokens":1,"completion_tokens":2,"total_tokens":3}
+	}`), completion); err != nil {
+		t.Fatal(err)
+	}
+	got, err := fromCompletion(completion)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Content.Parts) != 3 || !got.Content.Parts[0].Thought || got.Content.Parts[0].Text != "reason" {
+		t.Fatalf("parts = %#v", got.Content.Parts)
+	}
+	if got.Content.Parts[1].Thought || got.Content.Parts[1].Text != "visible" {
+		t.Fatalf("visible = %#v", got.Content.Parts[1])
+	}
+	if got.Content.Parts[2].FunctionCall == nil || got.Content.Parts[2].FunctionCall.Name != "lookup" {
+		t.Fatalf("call = %#v", got.Content.Parts[2])
+	}
+}
+
+func TestFromCompletionWithoutReasoning(t *testing.T) {
+	completion := &openai.ChatCompletion{}
+	if err := json.Unmarshal([]byte(`{
+		"model":"m","choices":[{"finish_reason":"stop","message":{"role":"assistant","content":"visible"}}],
+		"usage":{"prompt_tokens":1,"completion_tokens":1,"total_tokens":2}
+	}`), completion); err != nil {
+		t.Fatal(err)
+	}
+	got, err := fromCompletion(completion)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Content.Parts) != 1 || got.Content.Parts[0].Thought || got.CustomMetadata != nil {
+		t.Fatalf("response = %#v", got)
 	}
 }
 

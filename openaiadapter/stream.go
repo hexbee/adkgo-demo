@@ -43,6 +43,15 @@ func (m *Model) generateStream(ctx context.Context, params openai.ChatCompletion
 			}
 			if deltaReasoning := extractReasoning(choice.Delta.RawJSON()); deltaReasoning != "" {
 				reasoning.WriteString(deltaReasoning)
+				if !yield(&model.LLMResponse{
+					Content: &genai.Content{Role: "model", Parts: []*genai.Part{{
+						Text: deltaReasoning, Thought: true,
+					}}},
+					ModelVersion: modelVersion,
+					Partial:      true,
+				}, nil) {
+					return
+				}
 			}
 			if choice.Delta.Content != "" {
 				text.WriteString(choice.Delta.Content)
@@ -74,7 +83,10 @@ func (m *Model) generateStream(ctx context.Context, params openai.ChatCompletion
 		return
 	}
 
-	parts := make([]*genai.Part, 0, 1+len(toolCalls))
+	parts := make([]*genai.Part, 0, 2+len(toolCalls))
+	if reasoning.Len() > 0 {
+		parts = append(parts, &genai.Part{Text: reasoning.String(), Thought: true})
+	}
 	if text.Len() > 0 {
 		parts = append(parts, &genai.Part{Text: text.String()})
 	}

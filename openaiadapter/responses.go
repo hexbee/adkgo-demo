@@ -15,7 +15,11 @@ func fromCompletion(completion *openai.ChatCompletion) (*model.LLMResponse, erro
 		return nil, fmt.Errorf("provider returned no completion choices")
 	}
 	choice := completion.Choices[0]
-	parts := make([]*genai.Part, 0, 1+len(choice.Message.ToolCalls))
+	reasoning := extractReasoning(choice.Message.RawJSON())
+	parts := make([]*genai.Part, 0, 2+len(choice.Message.ToolCalls))
+	if reasoning != "" {
+		parts = append(parts, &genai.Part{Text: reasoning, Thought: true})
+	}
 	if choice.Message.Content != "" {
 		parts = append(parts, &genai.Part{Text: choice.Message.Content})
 	}
@@ -30,7 +34,7 @@ func fromCompletion(completion *openai.ChatCompletion) (*model.LLMResponse, erro
 		parts = append(parts, &genai.Part{FunctionCall: &genai.FunctionCall{ID: toolCall.ID, Name: toolCall.Function.Name, Args: args}})
 	}
 	metadata := map[string]any{}
-	if reasoning := extractReasoning(choice.Message.RawJSON()); reasoning != "" {
+	if reasoning != "" {
 		metadata["reasoning_content"] = reasoning
 	}
 	if len(metadata) == 0 {

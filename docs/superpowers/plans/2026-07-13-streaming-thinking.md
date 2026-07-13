@@ -512,7 +512,7 @@ git commit -m "feat: round-trip thinking configuration and history"
 - Produces: `genai.Part{Text: ..., Thought: true}` in partial and final responses
 - Preserves: `CustomMetadata["reasoning_content"]`
 
-- [ ] **Step 1: Tighten the non-streaming response test**
+- [x] **Step 1: Tighten the non-streaming response test**
 
 Update `TestModelNonStreamingToolCall` to expect two parts:
 
@@ -578,7 +578,7 @@ func TestFromCompletionWithoutReasoning(t *testing.T) {
 
 Add `encoding/json` and `github.com/openai/openai-go/v3` to `adapter_test.go` imports.
 
-- [ ] **Step 2: Rewrite the streaming text test expectations before implementation**
+- [x] **Step 2: Rewrite the streaming text test expectations before implementation**
 
 Leave the four existing SSE data lines unchanged. Replace the assertions after response collection so the test expects four responses: reasoning partial, two visible partials, and final aggregate.
 
@@ -603,7 +603,7 @@ Leave the four existing SSE data lines unchanged. Replace the assertions after r
 
 Continue asserting usage and complete metadata on the final response.
 
-- [ ] **Step 3: Add streamed reasoning-plus-tool test coverage**
+- [x] **Step 3: Add streamed reasoning-plus-tool test coverage**
 
 Prepend this fixture chunk to `TestStreamToolCallFragments`:
 
@@ -651,13 +651,13 @@ func TestStreamWithoutReasoning(t *testing.T) {
 }
 ```
 
-- [ ] **Step 4: Run response tests and verify they fail**
+- [x] **Step 4: Run response tests and verify they fail**
 
 Run: `go test ./openaiadapter -run 'Test(ModelNonStreaming|Stream)' -count=1`
 
 Expected: FAIL because reasoning is still metadata-only and no Thought partial exists.
 
-- [ ] **Step 5: Implement non-streaming Thought parts**
+- [x] **Step 5: Implement non-streaming Thought parts**
 
 In `fromCompletion`, extract reasoning before ordinary content and append it first:
 
@@ -686,7 +686,7 @@ Use the already extracted `reasoning` when constructing metadata:
 
 The function-call loop remains immediately after the visible text append block, so calls are appended after Thought and visible text.
 
-- [ ] **Step 6: Implement streamed Thought partials**
+- [x] **Step 6: Implement streamed Thought partials**
 
 Replace the current reasoning accumulation block in `generateStream`:
 
@@ -733,7 +733,7 @@ Place the unchanged indexed tool-call decoding loop immediately after those two 
 	}, nil)
 ```
 
-- [ ] **Step 7: Verify response behavior and commit**
+- [x] **Step 7: Verify response behavior and commit**
 
 Run: `gofmt -w openaiadapter/*.go && go test ./openaiadapter -count=1 && go test -race ./openaiadapter -count=1`
 
