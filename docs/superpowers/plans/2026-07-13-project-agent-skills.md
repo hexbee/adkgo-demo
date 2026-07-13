@@ -465,7 +465,7 @@ git commit -m "feat: expose project Skills to the agent"
 **Files:**
 - Modify: `README.md`
 
-- [ ] **Step 1: Document project Skills usage**
+- [x] **Step 1: Document project Skills usage**
 
 Add a section covering:
 
@@ -480,7 +480,7 @@ Add a section covering:
 - `skills-lock.json` and `agents/openai.yaml` are not runtime inputs;
 - MCP confirmation remains independent and unchanged.
 
-- [ ] **Step 2: Run repository validation**
+- [x] **Step 2: Run repository validation**
 
 Run:
 
@@ -493,7 +493,7 @@ go build ./...
 
 Expected: every command exits 0 and the race detector reports no races.
 
-- [ ] **Step 3: Run local startup checks without exposing credentials**
+- [x] **Step 3: Run local startup checks without exposing credentials**
 
 Start the console launcher using the existing `.env` and `.mcp.json`. Verify logs contain only safe summaries plus either:
 
@@ -503,7 +503,7 @@ loaded 2 project skill(s) from .agents/skills
 
 or the actual discovered count. Do not print configuration files, Authorization headers, full Skill bodies, or resource contents.
 
-- [ ] **Step 4: Run live Skill smoke tests in order**
+- [x] **Step 4: Run live Skill smoke tests in order**
 
 Use the console launcher and record only tool names and high-level outcomes:
 
@@ -513,7 +513,7 @@ Use the console launcher and record only tool names and high-level outcomes:
 
 If the model chooses an unrelated MCP tool, decline its confirmation and refine the prompt; do not authorize a remote action merely to complete this smoke test.
 
-- [ ] **Step 5: Commit documentation**
+- [x] **Step 5: Commit documentation**
 
 ```bash
 git add README.md
