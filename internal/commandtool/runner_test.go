@@ -1,11 +1,14 @@
 package commandtool
 
 import (
+	"context"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 )
 
 func newTestRunner(t *testing.T) *Runner {
@@ -120,4 +123,77 @@ func TestNewFallsBackFromInvalidShell(t *testing.T) {
 	if runner.shell != "/bin/sh" {
 		t.Fatalf("shell = %q, want /bin/sh", runner.shell)
 	}
+}
+
+func TestRunnerCancellationKillsProcessGroup(t *testing.T) {
+	runner := newTestRunner(t)
+	directory := t.TempDir()
+	started := filepath.Join(directory, "started")
+	leaked := filepath.Join(directory, "leaked")
+	ctx, cancel := context.WithCancel(t.Context())
+	done := make(chan Result, 1)
+	errs := make(chan error, 1)
+	go func() {
+		result, err := runner.Run(ctx, Args{
+			Command:          "touch started; sleep 2; touch leaked",
+			WorkingDirectory: directory,
+		})
+		done <- result
+		errs <- err
+	}()
+
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		if _, err := os.Stat(started); err == nil {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("command did not start")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	cancel()
+	result := <-done
+	if err := <-errs; err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if !result.Cancelled || result.ExitCode == 0 {
+		t.Fatalf("result = %#v", result)
+	}
+	time.Sleep(100 * time.Millisecond)
+	if _, err := os.Stat(leaked); !os.IsNotExist(err) {
+		t.Fatalf("descendant survived: %v", err)
+	}
+}
+
+func TestRunnerAlreadyCancelledDoesNotStart(t *testing.T) {
+	directory := t.TempDir()
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	result, err := newTestRunner(t).Run(ctx, Args{
+		Command:          "touch marker",
+		WorkingDirectory: directory,
+	})
+	if err != nil || !result.Cancelled || result.ExitCode != -1 {
+		t.Fatalf("result = %#v, err = %v", result, err)
+	}
+	if _, err := os.Stat(filepath.Join(directory, "marker")); !os.IsNotExist(err) {
+		t.Fatalf("command started: %v", err)
+	}
+}
+
+func TestRunnerSupportsConcurrentCalls(t *testing.T) {
+	runner := newTestRunner(t)
+	var wait sync.WaitGroup
+	for index := range 8 {
+		wait.Add(1)
+		go func() {
+			defer wait.Done()
+			result, err := runner.Run(context.Background(), Args{Command: "printf concurrent"})
+			if err != nil || result.Stdout != "concurrent" {
+				t.Errorf("Run(%d) = %#v, %v", index, result, err)
+			}
+		}()
+	}
+	wait.Wait()
 }
