@@ -44,6 +44,7 @@ go run . console
 - temperature、top-p、stop、penalty、seed、max tokens
 - reasoning content（保存在 ADK `CustomMetadata`，不会混入最终答案）
 - usage、finish reason、取消传播和敏感信息脱敏
+- 本地 shell/CLI 执行与结构化结果
 
 图片和严格 JSON Schema 属于协议级支持，最终能否使用取决于所选服务商和模型。
 
@@ -95,6 +96,24 @@ Console 和 Web UI 都会加载同一份 MCP 配置：
 go run . console
 go run . web webui api
 ```
+
+## 本地 Shell / CLI
+
+Agent 内置 `run_command`，通过当前 `$SHELL` 执行非交互命令。它支持管道、重定向和环境变量，也可以调用 PATH 中已经安装的 Bash、Python、Node.js、npm/npx、Go 及其他 CLI。
+
+可以尝试：
+
+```text
+请调用 run_command，执行 printf 'hello from shell'。
+请调用 run_command，执行 python3 -c 'print(6 * 7)'。
+请调用 run_command，分别显示 node 和 go 的版本。
+```
+
+`working_directory` 为空时使用程序启动目录；相对路径从该目录解析，也允许绝对路径。命令不提供 TTY 或密码输入界面。Python、Node.js 等运行时必须已安装并位于 PATH 中。
+
+> **安全警告：** `run_command` 不要求人工确认，不使用沙箱或白名单，并继承当前进程的文件、网络和环境权限。模型可以修改或删除文件、安装依赖、访问网络或启动其他进程。只应在你信任模型服务、提示内容和项目文件时运行本示例。
+
+stdout 和 stderr 分开返回；非零退出码不会被隐藏。每个输出流最多保留 64 KiB 的开头和结尾。Ctrl-C 或请求取消会终止命令及其子进程。
 
 ## 验证
 

@@ -1,0 +1,12 @@
+{
+  "version": 1,
+  "skills": {
+    "follow-builders-lite": {
+      "source": "hexbee/hello-skills",
+      "ref": "main",
+      "sourceType": "github",
+      "skillPath": "skills/follow-builders-lite/SKILL.md",
+      "computedHash": "ccbb53614aa21595098ab30878a79679ed87f0d181f2cdbc9d3270b1bf846f14"
+    }
+  }
+}
