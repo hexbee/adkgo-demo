@@ -90,6 +90,9 @@ func discoverEchoTool(t *testing.T, calls *atomic.Int32, sawHeader *atomic.Bool)
 	if err != nil {
 		t.Fatal(err)
 	}
+	if toolsets[0].Name() != "mcp_test" {
+		t.Fatalf("toolset name = %q", toolsets[0].Name())
+	}
 	ctx := &agent.StrictContextMock{Ctx: t.Context()}
 	tools, err := toolsets[0].Tools(ctx)
 	if err != nil {

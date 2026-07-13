@@ -5,14 +5,19 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"os/signal"
+	"syscall"
 	"time"
 
 	"github.com/hexbee/adkgo-demo/internal/config"
+	"github.com/hexbee/adkgo-demo/internal/mcpconfig"
+	"github.com/hexbee/adkgo-demo/internal/mcpruntime"
 	"github.com/hexbee/adkgo-demo/openaiadapter"
 	"google.golang.org/adk/v2/agent"
 	"google.golang.org/adk/v2/agent/llmagent"
 	"google.golang.org/adk/v2/cmd/launcher"
 	"google.golang.org/adk/v2/cmd/launcher/full"
+	"google.golang.org/adk/v2/model"
 	"google.golang.org/adk/v2/tool"
 	"google.golang.org/adk/v2/tool/functiontool"
 )
@@ -34,8 +39,27 @@ func lookupTime(_ agent.Context, args timeArgs) (timeResult, error) {
 	return timeResult{Timezone: args.Timezone, Time: time.Now().In(location).Format(time.RFC3339)}, nil
 }
 
+func buildAgent(llm model.LLM, toolsets []tool.Toolset) (agent.Agent, error) {
+	timeTool, err := functiontool.New(functiontool.Config{
+		Name: "lookup_time", Description: "Returns the current time in an IANA timezone.",
+	}, lookupTime)
+	if err != nil {
+		return nil, fmt.Errorf("create time tool: %w", err)
+	}
+	return llmagent.New(llmagent.Config{
+		Name:        "openai_compatible_assistant",
+		Description: "An assistant backed by an OpenAI-compatible endpoint.",
+		Instruction: "Be concise and helpful. Use lookup_time for timezone questions. Use available MCP tools when relevant; every remote MCP action requires explicit user confirmation before execution.",
+		Model:       llm,
+		Tools:       []tool.Tool{timeTool},
+		Toolsets:    toolsets,
+	})
+}
+
 func main() {
-	ctx := context.Background()
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
 	cfg, err := config.Load(".env")
 	if err != nil {
 		log.Fatalf("configuration error: %v", err)
@@ -49,19 +73,20 @@ func main() {
 	if err != nil {
 		log.Fatalf("create model: %v", err)
 	}
-	timeTool, err := functiontool.New(functiontool.Config{
-		Name: "lookup_time", Description: "Returns the current time in an IANA timezone.",
-	}, lookupTime)
+	mcpResult, err := mcpconfig.Load(".mcp.json")
 	if err != nil {
-		log.Fatalf("create tool: %v", err)
+		log.Fatalf("MCP configuration error: %v", err)
 	}
-	rootAgent, err := llmagent.New(llmagent.Config{
-		Name:        "openai_compatible_assistant",
-		Description: "An assistant backed by an OpenAI-compatible endpoint.",
-		Instruction: "Be concise and helpful. Use lookup_time when the user asks for the time in a named timezone.",
-		Model:       adaptedModel,
-		Tools:       []tool.Tool{timeTool},
-	})
+	mcpToolsets, err := mcpruntime.Build(mcpResult.Servers)
+	if err != nil {
+		log.Fatalf("MCP setup error: %v", err)
+	}
+	if mcpResult.Found {
+		log.Printf("loaded %d HTTP MCP server(s)", len(mcpResult.Servers))
+	} else {
+		log.Printf("no .mcp.json found; starting without MCP servers")
+	}
+	rootAgent, err := buildAgent(adaptedModel, mcpToolsets)
 	if err != nil {
 		log.Fatalf("create agent: %v", err)
 	}

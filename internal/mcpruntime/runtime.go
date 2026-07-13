@@ -3,9 +3,12 @@ package mcpruntime
 import (
 	"fmt"
 	"net/http"
+	"strings"
+	"unicode"
 
 	"github.com/hexbee/adkgo-demo/internal/mcpconfig"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+	"google.golang.org/adk/v2/agent"
 	"google.golang.org/adk/v2/tool"
 	"google.golang.org/adk/v2/tool/mcptoolset"
 )
@@ -13,6 +16,22 @@ import (
 type headerTransport struct {
 	base    http.RoundTripper
 	headers http.Header
+}
+
+type namedToolset struct {
+	name         string
+	safeEndpoint string
+	inner        tool.Toolset
+}
+
+func (t *namedToolset) Name() string { return t.name }
+
+func (t *namedToolset) Tools(ctx agent.ReadonlyContext) ([]tool.Tool, error) {
+	tools, err := t.inner.Tools(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("MCP tool discovery for %s (%s): %w", t.name, t.safeEndpoint, err)
+	}
+	return tools, nil
 }
 
 func (t *headerTransport) RoundTrip(req *http.Request) (*http.Response, error) {
@@ -44,7 +63,20 @@ func Build(servers []mcpconfig.Server) ([]tool.Toolset, error) {
 		if err != nil {
 			return nil, fmt.Errorf("create MCP toolset for %s (%s): %w", server.Name, server.SafeEndpoint(), err)
 		}
-		result = append(result, toolset)
+		result = append(result, &namedToolset{name: toolsetName(server.Name), safeEndpoint: server.SafeEndpoint(), inner: toolset})
 	}
 	return result, nil
+}
+
+func toolsetName(serverName string) string {
+	var result strings.Builder
+	result.WriteString("mcp_")
+	for _, r := range serverName {
+		if unicode.IsLetter(r) || unicode.IsDigit(r) || r == '_' {
+			result.WriteRune(r)
+		} else {
+			result.WriteByte('_')
+		}
+	}
+	return result.String()
 }

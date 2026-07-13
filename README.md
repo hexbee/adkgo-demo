@@ -59,6 +59,43 @@ MODEL_NAME=模型名称
 
 `.env` 已加入 `.gitignore`，请勿将真实密钥提交到 Git。
 
+## MCP 工具
+
+项目启动时会自动读取根目录的 `.mcp.json`，将其中的 HTTP MCP server 转换为 ADK Toolsets。每一个远程 MCP tool 在真正执行前都会要求人工确认；拒绝确认不会发出远程工具调用。
+
+可以从安全模板开始：
+
+```bash
+cp .mcp.example.json .mcp.json
+```
+
+支持的配置结构为：
+
+```json
+{
+  "mcpServers": {
+    "example": {
+      "type": "http",
+      "url": "https://mcp.example.test/mcp",
+      "headers": {
+        "Authorization": "Bearer REPLACE_ME"
+      }
+    }
+  }
+}
+```
+
+当前迭代只支持 `type: "http"`，暂不支持 stdio。连接在 Agent 首次获取工具列表时懒创建，因此启动程序本身不会调用远端 MCP。不同 server 应避免暴露同名 tool。
+
+`.mcp.json` 通常包含 token 或 API key，已经加入 `.gitignore`。程序不会打印 headers、完整 query 参数或原始 MCP 配置。
+
+Console 和 Web UI 都会加载同一份 MCP 配置：
+
+```bash
+go run . console
+go run . web webui api
+```
+
 ## 验证
 
 所有自动测试都使用本地模拟服务器，不消耗 API 配额：
