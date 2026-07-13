@@ -241,7 +241,7 @@ git commit -m "feat: configure model thinking mode"
 - Produces: `buildParams(req *model.LLMRequest, cfg Config)`
 - Produces: assistant request messages with optional `reasoning_content`
 
-- [ ] **Step 1: Write failing adapter configuration tests**
+- [x] **Step 1: Write failing adapter configuration tests**
 
 Append to `adapter_test.go`:
 
@@ -288,7 +288,7 @@ func TestNewValidatesThinkingConfiguration(t *testing.T) {
 
 Refactor `newTestModel` to call `validAdapterConfig(server.URL + "/v1")` so new tests and existing tests share one valid baseline.
 
-- [ ] **Step 2: Write failing exact request JSON tests**
+- [x] **Step 2: Write failing exact request JSON tests**
 
 Change existing `buildParams` test calls to pass `Config{Model: ..., MaxTokens: ...}`. Add:
 
@@ -332,7 +332,7 @@ func TestBuildParamsThinkingConfiguration(t *testing.T) {
 }
 ```
 
-- [ ] **Step 3: Write failing assistant history tests**
+- [x] **Step 3: Write failing assistant history tests**
 
 Append to `messages_test.go`:
 
@@ -379,13 +379,13 @@ func TestConvertThoughtToolCallRoundTrip(t *testing.T) {
 }
 ```
 
-- [ ] **Step 4: Run focused tests and verify they fail**
+- [x] **Step 4: Run focused tests and verify they fail**
 
 Run: `go test ./openaiadapter -run 'Test(NewValidatesThinking|BuildParamsThinking|ConvertAssistantThought|ConvertThoughtTool)' -count=1`
 
 Expected: FAIL because config fields, request encoding, and `reasoning_content` history do not exist.
 
-- [ ] **Step 5: Implement adapter configuration validation**
+- [x] **Step 5: Implement adapter configuration validation**
 
 Add `ThinkingMode` and `ReasoningEffort` to `openaiadapter.Config`. In `New`, lowercase and trim both, default blank mode to `auto`, validate the same allowed combinations as Task 1, and return adapter-local messages:
 
@@ -410,7 +410,7 @@ Add `ThinkingMode` and `ReasoningEffort` to `openaiadapter.Config`. In `New`, lo
 	}
 ```
 
-- [ ] **Step 6: Implement request encoding**
+- [x] **Step 6: Implement request encoding**
 
 Change the request builder signature:
 
@@ -433,7 +433,7 @@ Use `cfg.Model` and `cfg.MaxTokens` in place of the two old arguments. Before re
 
 Update `GenerateContent` to call `buildParams(req, m.cfg)` and update existing request tests to use `Config` values.
 
-- [ ] **Step 7: Implement Thought history serialization**
+- [x] **Step 7: Implement Thought history serialization**
 
 In `convertAssistantContent`, maintain separate `thoughts` and `texts` slices:
 
@@ -488,7 +488,7 @@ func convertAssistantContent(index int, content *genai.Content) (openai.ChatComp
 }
 ```
 
-- [ ] **Step 8: Verify and commit**
+- [x] **Step 8: Verify and commit**
 
 Run: `gofmt -w openaiadapter/*.go && go test ./openaiadapter -run 'Test(NewValidatesThinking|BuildParams|Convert)' -count=1`
 

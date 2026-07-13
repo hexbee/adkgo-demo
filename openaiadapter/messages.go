@@ -127,6 +127,7 @@ func imagePart(value string) openai.ChatCompletionContentPartUnionParam {
 }
 
 func convertAssistantContent(index int, content *genai.Content) (openai.ChatCompletionMessageParamUnion, error) {
+	var thoughts []string
 	var texts []string
 	var calls []openai.ChatCompletionMessageToolCallUnionParam
 	for i, part := range content.Parts {
@@ -134,6 +135,8 @@ func convertAssistantContent(index int, content *genai.Content) (openai.ChatComp
 			continue
 		}
 		switch {
+		case part.Text != "" && part.Thought:
+			thoughts = append(thoughts, part.Text)
 		case part.Text != "":
 			texts = append(texts, part.Text)
 		case part.FunctionCall != nil:
@@ -155,5 +158,10 @@ func convertAssistantContent(index int, content *genai.Content) (openai.ChatComp
 	}
 	message := openai.AssistantMessage(strings.Join(texts, ""))
 	message.OfAssistant.ToolCalls = calls
+	if len(thoughts) > 0 {
+		message.OfAssistant.SetExtraFields(map[string]any{
+			"reasoning_content": strings.Join(thoughts, ""),
+		})
+	}
 	return message, nil
 }

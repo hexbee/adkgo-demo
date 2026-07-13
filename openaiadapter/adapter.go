@@ -13,11 +13,13 @@ import (
 )
 
 type Config struct {
-	BaseURL       string
-	APIKey        string
-	Model         string
-	ContextWindow int64
-	MaxTokens     int64
+	BaseURL         string
+	APIKey          string
+	Model           string
+	ContextWindow   int64
+	MaxTokens       int64
+	ThinkingMode    string
+	ReasoningEffort string
 }
 
 type Model struct {
@@ -29,6 +31,11 @@ func New(cfg Config) (*Model, error) {
 	cfg.BaseURL = strings.TrimRight(strings.TrimSpace(cfg.BaseURL), "/")
 	cfg.APIKey = strings.TrimSpace(cfg.APIKey)
 	cfg.Model = strings.TrimSpace(cfg.Model)
+	cfg.ThinkingMode = strings.ToLower(strings.TrimSpace(cfg.ThinkingMode))
+	cfg.ReasoningEffort = strings.ToLower(strings.TrimSpace(cfg.ReasoningEffort))
+	if cfg.ThinkingMode == "" {
+		cfg.ThinkingMode = "auto"
+	}
 	u, err := url.ParseRequestURI(cfg.BaseURL)
 	if err != nil || u.Scheme == "" || u.Host == "" || (u.Scheme != "http" && u.Scheme != "https") {
 		return nil, fmt.Errorf("base URL must be an absolute HTTP(S) URL")
@@ -38,6 +45,19 @@ func New(cfg Config) (*Model, error) {
 	}
 	if cfg.ContextWindow <= 0 || cfg.MaxTokens <= 0 {
 		return nil, fmt.Errorf("context window and max tokens must be positive")
+	}
+	switch cfg.ThinkingMode {
+	case "auto", "enabled", "disabled":
+	default:
+		return nil, fmt.Errorf("thinking mode must be auto, enabled, or disabled")
+	}
+	switch cfg.ReasoningEffort {
+	case "", "high", "max":
+	default:
+		return nil, fmt.Errorf("reasoning effort must be high or max when set")
+	}
+	if cfg.ThinkingMode == "disabled" && cfg.ReasoningEffort != "" {
+		return nil, fmt.Errorf("reasoning effort must be empty when thinking mode is disabled")
 	}
 	return &Model{
 		client: openai.NewClient(option.WithAPIKey(cfg.APIKey), option.WithBaseURL(cfg.BaseURL)),
@@ -49,7 +69,7 @@ func (m *Model) Name() string { return m.cfg.Model }
 
 func (m *Model) GenerateContent(ctx context.Context, req *model.LLMRequest, stream bool) iter.Seq2[*model.LLMResponse, error] {
 	return func(yield func(*model.LLMResponse, error) bool) {
-		params, capabilities, err := buildParams(req, m.cfg.Model, m.cfg.MaxTokens)
+		params, capabilities, err := buildParams(req, m.cfg)
 		if err != nil {
 			yield(nil, err)
 			return

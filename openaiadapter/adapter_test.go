@@ -16,15 +16,58 @@ func newTestModel(t *testing.T, handler http.HandlerFunc) *Model {
 	t.Helper()
 	server := httptest.NewServer(handler)
 	t.Cleanup(server.Close)
-	m, err := New(Config{BaseURL: server.URL + "/v1", APIKey: "test-secret-key", Model: "test-model", ContextWindow: 1000, MaxTokens: 100})
+	m, err := New(validAdapterConfig(server.URL + "/v1"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	return m
 }
 
+func validAdapterConfig(baseURL string) Config {
+	return Config{
+		BaseURL: baseURL, APIKey: "test-secret-key", Model: "test-model",
+		ContextWindow: 1000, MaxTokens: 100,
+	}
+}
+
 func testRequest() *model.LLMRequest {
 	return &model.LLMRequest{Contents: []*genai.Content{{Role: "user", Parts: []*genai.Part{{Text: "hello"}}}}, Config: &genai.GenerateContentConfig{}}
+}
+
+func TestNewValidatesThinkingConfiguration(t *testing.T) {
+	for _, tc := range []struct {
+		name, mode, effort, wantMode, wantEffort string
+	}{
+		{"default", "", "", "auto", ""},
+		{"enabled", " ENABLED ", " HIGH ", "enabled", "high"},
+		{"disabled", "disabled", "", "disabled", ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := validAdapterConfig("https://example.test/v1")
+			cfg.ThinkingMode, cfg.ReasoningEffort = tc.mode, tc.effort
+			got, err := New(cfg)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got.cfg.ThinkingMode != tc.wantMode || got.cfg.ReasoningEffort != tc.wantEffort {
+				t.Fatalf("config = %#v", got.cfg)
+			}
+		})
+	}
+
+	invalid := []Config{
+		validAdapterConfig("https://example.test/v1"),
+		validAdapterConfig("https://example.test/v1"),
+		validAdapterConfig("https://example.test/v1"),
+	}
+	invalid[0].ThinkingMode = "sometimes"
+	invalid[1].ReasoningEffort = "medium"
+	invalid[2].ThinkingMode, invalid[2].ReasoningEffort = "disabled", "high"
+	for _, cfg := range invalid {
+		if _, err := New(cfg); err == nil {
+			t.Fatalf("New(%#v) succeeded", cfg)
+		}
+	}
 }
 
 func TestModelNonStreamingToolCall(t *testing.T) {

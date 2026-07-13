@@ -64,6 +64,47 @@ func TestConvertFunctionRoundTripMessages(t *testing.T) {
 	}
 }
 
+func TestConvertAssistantThoughtHistory(t *testing.T) {
+	got, err := convertContents([]*genai.Content{{Role: "model", Parts: []*genai.Part{
+		{Text: "reason one ", Thought: true},
+		{Text: "reason two", Thought: true},
+		{Text: "visible answer"},
+	}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	payload := marshalMap(t, got[0])
+	if payload["reasoning_content"] != "reason one reason two" || payload["content"] != "visible answer" {
+		t.Fatalf("assistant message = %#v", payload)
+	}
+}
+
+func TestConvertThoughtToolCallRoundTrip(t *testing.T) {
+	got, err := convertContents([]*genai.Content{
+		{Role: "model", Parts: []*genai.Part{
+			{Text: "need the tool", Thought: true},
+			{FunctionCall: &genai.FunctionCall{ID: "call-1", Name: "lookup", Args: map[string]any{"q": "x"}}},
+		}},
+		{Role: "user", Parts: []*genai.Part{{FunctionResponse: &genai.FunctionResponse{
+			ID: "call-1", Name: "lookup", Response: map[string]any{"output": "y"},
+		}}}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	assistant := marshalMap(t, got[0])
+	toolResult := marshalMap(t, got[1])
+	if assistant["reasoning_content"] != "need the tool" || assistant["tool_calls"] == nil {
+		t.Fatalf("assistant = %#v", assistant)
+	}
+	if content, exists := assistant["content"]; exists && content != "" {
+		t.Fatalf("thought leaked into visible content: %#v", assistant)
+	}
+	if toolResult["tool_call_id"] != "call-1" {
+		t.Fatalf("tool result = %#v", toolResult)
+	}
+}
+
 func TestConvertRejectsUnsupportedMedia(t *testing.T) {
 	_, err := convertContents([]*genai.Content{{Role: "user", Parts: []*genai.Part{{InlineData: &genai.Blob{MIMEType: "audio/wav", Data: []byte{1}}}}}})
 	if err == nil {

@@ -12,8 +12,8 @@ import (
 	"google.golang.org/genai"
 )
 
-func buildParams(req *model.LLMRequest, defaultModel string, defaultMaxTokens int64) (openai.ChatCompletionNewParams, []string, error) {
-	modelName := defaultModel
+func buildParams(req *model.LLMRequest, cfg Config) (openai.ChatCompletionNewParams, []string, error) {
+	modelName := cfg.Model
 	if req.Model != "" {
 		modelName = req.Model
 	}
@@ -36,7 +36,7 @@ func buildParams(req *model.LLMRequest, defaultModel string, defaultMaxTokens in
 		capabilities["images"] = true
 	}
 
-	maxTokens := defaultMaxTokens
+	maxTokens := cfg.MaxTokens
 	if req.Config != nil && req.Config.MaxOutputTokens > 0 && int64(req.Config.MaxOutputTokens) < maxTokens {
 		maxTokens = int64(req.Config.MaxOutputTokens)
 	}
@@ -51,6 +51,14 @@ func buildParams(req *model.LLMRequest, defaultModel string, defaultMaxTokens in
 		if err := applyResponseFormat(&params, req.Config, capabilities); err != nil {
 			return params, nil, err
 		}
+	}
+	if cfg.ThinkingMode == "enabled" || cfg.ThinkingMode == "disabled" {
+		params.SetExtraFields(map[string]any{
+			"thinking": map[string]any{"type": cfg.ThinkingMode},
+		})
+	}
+	if cfg.ReasoningEffort != "" {
+		params.ReasoningEffort = shared.ReasoningEffort(cfg.ReasoningEffort)
 	}
 
 	labels := make([]string, 0, len(capabilities))
