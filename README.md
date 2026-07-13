@@ -17,6 +17,8 @@ API_KEY=你的密钥
 MODEL_NAME=deepseek-v4-flash
 CONTEXT_WINDOW=1000000
 MAX_TOKENS=384000
+THINKING_MODE=auto
+# REASONING_EFFORT=high
 ```
 
 启动 ADK console：
@@ -59,6 +61,26 @@ MODEL_NAME=模型名称
 ```
 
 `.env` 已加入 `.gitignore`，请勿将真实密钥提交到 Git。
+
+## Thinking / Reasoning
+
+Adapter 支持 OpenAI-compatible Chat Completions 返回的 `reasoning_content`。ADK Web UI 会把它作为独立 Thought 展示，thinking 和之后的正式回答都会按照服务商 chunk 实时流式输出：
+
+```bash
+go run . web webui api
+```
+
+`THINKING_MODE` 支持：
+
+- `auto`（默认）：不发送服务商私有 `thinking` 参数，但只要响应包含 reasoning 就展示；
+- `enabled`：发送 `thinking: {"type":"enabled"}`；
+- `disabled`：发送 `thinking: {"type":"disabled"}`。
+
+`REASONING_EFFORT` 可留空，或设置为 `high`、`max`。`THINKING_MODE=disabled` 时不能同时设置 effort。
+
+带工具调用的 assistant reasoning 会通过 `reasoning_content` 原样回传，支持 DeepSeek thinking → tool call → tool result → thinking/answer 的多步流程。不返回 reasoning 的服务商保持普通流式回答行为。
+
+> **隐私提示：** Thought 是服务商返回的模型输出，不保证是完整或忠实的内部计算审计记录，其中可能包含提示词、工具计划或其他敏感上下文。不要将这个本地开发 Web UI 暴露给不受信任的访问者。
 
 ## Project Agent Skills
 

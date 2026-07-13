@@ -71,6 +71,7 @@ func main() {
 	adaptedModel, err := openaiadapter.New(openaiadapter.Config{
 		BaseURL: cfg.BaseURL, APIKey: cfg.APIKey, Model: cfg.ModelName,
 		ContextWindow: cfg.ContextWindow, MaxTokens: cfg.MaxTokens,
+		ThinkingMode: cfg.ThinkingMode, ReasoningEffort: cfg.ReasoningEffort,
 	})
 	if err != nil {
 		log.Fatalf("create model: %v", err)

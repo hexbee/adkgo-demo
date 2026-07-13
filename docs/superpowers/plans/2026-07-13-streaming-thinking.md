@@ -754,7 +754,7 @@ git commit -m "feat: stream reasoning as ADK Thought parts"
 - Consumes: `internal/config.Config.ThinkingMode` and `.ReasoningEffort`
 - Supplies: corresponding `openaiadapter.Config` fields
 
-- [ ] **Step 1: Wire validated settings into model construction**
+- [x] **Step 1: Wire validated settings into model construction**
 
 Extend the existing `openaiadapter.New` call in `main.go`:
 
@@ -770,7 +770,7 @@ Extend the existing `openaiadapter.New` call in `main.go`:
 	})
 ```
 
-- [ ] **Step 2: Document thinking configuration and Web UI behavior**
+- [x] **Step 2: Document thinking configuration and Web UI behavior**
 
 Update the README dotenv example to include:
 
@@ -803,7 +803,7 @@ go run . web webui api
 > **隐私提示：** Thought 是服务商返回的模型输出，不保证是完整或忠实的内部计算审计记录，其中可能包含提示词、工具计划或其他敏感上下文。不要将这个本地开发 Web UI 暴露给不受信任的访问者。
 ````
 
-- [ ] **Step 3: Run full automated validation**
+- [x] **Step 3: Run full automated validation**
 
 Run:
 
@@ -816,7 +816,7 @@ go build ./...
 
 Expected: all commands exit 0 and the race detector reports no races.
 
-- [ ] **Step 4: Run a raw local SSE smoke test**
+- [x] **Step 4: Run a raw local SSE smoke test**
 
 Start the combined server on its default port:
 
@@ -850,11 +850,11 @@ Inspect only event structure, not credentials. Verify at least one partial event
 
 and at least one later partial event contains ordinary text without `thought: true`. Verify the final event contains complete Thought and visible text parts. Stop the server with Ctrl-C after both smoke tests.
 
-- [ ] **Step 5: Run a tool-call reasoning smoke test**
+- [x] **Step 5: Run a tool-call reasoning smoke test**
 
 In the bundled Web UI, ask a timezone question that requires `lookup_time` and explicitly forbid MCP. Verify the request completes through reasoning → local tool call → tool result → final response without a provider 400. Do not approve any MCP confirmation.
 
-- [ ] **Step 6: Confirm working tree scope and commit documentation**
+- [x] **Step 6: Confirm working tree scope and commit documentation**
 
 Run `git status --short` and verify `AI_Digest_2026-07-13.md` remains untracked and unstaged. Stage only `main.go`, `README.md`, and the implementation-plan checkbox updates.
 
