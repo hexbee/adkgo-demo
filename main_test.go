@@ -30,11 +30,11 @@ func (stubTool) Name() string        { return "run_command" }
 func (stubTool) Description() string { return "test command tool" }
 func (stubTool) IsLongRunning() bool { return false }
 
-func TestBuildAgentAcceptsLocalToolAndMCPToolsets(t *testing.T) {
+func TestBuildAgentAcceptsLocalToolAndCombinedToolsets(t *testing.T) {
 	for _, toolsets := range [][]tool.Toolset{
 		nil,
-		{stubToolset{name: "one"}},
-		{stubToolset{name: "one"}, stubToolset{name: "two"}},
+		{stubToolset{name: "mcp"}},
+		{stubToolset{name: "mcp"}, stubToolset{name: "skills"}},
 	} {
 		if _, err := buildAgent(fakeModel{}, stubTool{}, toolsets); err != nil {
 			t.Fatalf("buildAgent(%d toolsets): %v", len(toolsets), err)

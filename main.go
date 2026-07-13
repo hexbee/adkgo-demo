@@ -13,6 +13,7 @@ import (
 	"github.com/hexbee/adkgo-demo/internal/config"
 	"github.com/hexbee/adkgo-demo/internal/mcpconfig"
 	"github.com/hexbee/adkgo-demo/internal/mcpruntime"
+	"github.com/hexbee/adkgo-demo/internal/skillsruntime"
 	"github.com/hexbee/adkgo-demo/openaiadapter"
 	"google.golang.org/adk/v2/agent"
 	"google.golang.org/adk/v2/agent/llmagent"
@@ -50,7 +51,7 @@ func buildAgent(llm model.LLM, commandTool tool.Tool, toolsets []tool.Toolset) (
 	return llmagent.New(llmagent.Config{
 		Name:        "openai_compatible_assistant",
 		Description: "An assistant backed by an OpenAI-compatible endpoint.",
-		Instruction: "Be concise and helpful. Use lookup_time for timezone questions. Use run_command for local shell or CLI tasks. Commands run immediately without confirmation or sandboxing. Use available MCP tools when relevant; every remote MCP action requires explicit user confirmation before execution.",
+		Instruction: "Be concise and helpful. Use lookup_time for timezone questions. Use run_command for local shell or CLI tasks. Commands run immediately without confirmation or sandboxing. Use available project Skills when relevant and load their instructions before acting. When a loaded Skill references scripts or commands, use run_command with working_directory set to \".agents/skills/<skill-name>\" so Skill-relative paths resolve correctly. Use available MCP tools when relevant; every remote MCP action requires explicit user confirmation before execution.",
 		Model:       llm,
 		Tools:       []tool.Tool{timeTool, commandTool},
 		Toolsets:    toolsets,
@@ -99,7 +100,20 @@ func main() {
 	} else {
 		log.Printf("no .mcp.json found; starting without MCP servers")
 	}
-	rootAgent, err := buildAgent(adaptedModel, commandTool, mcpToolsets)
+	skillsResult, err := skillsruntime.Build(ctx, projectRoot)
+	if err != nil {
+		log.Fatalf("Skills setup error: %v", err)
+	}
+	toolsets := append([]tool.Toolset(nil), mcpToolsets...)
+	if skillsResult.Toolset != nil {
+		toolsets = append(toolsets, skillsResult.Toolset)
+	}
+	if !skillsResult.Found {
+		log.Printf("no %s found; starting without project Skills", skillsruntime.RelativeRoot)
+	} else {
+		log.Printf("loaded %d project skill(s) from %s", skillsResult.Count, skillsruntime.RelativeRoot)
+	}
+	rootAgent, err := buildAgent(adaptedModel, commandTool, toolsets)
 	if err != nil {
 		log.Fatalf("create agent: %v", err)
 	}

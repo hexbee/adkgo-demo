@@ -413,11 +413,11 @@ git commit -m "test: verify official Agent Skills behavior"
 - Consumes: `skillsruntime.Build` and its optional `tool.Toolset`
 - Preserves: existing local tools, MCP Toolsets, MCP confirmation, and both launchers
 
-- [ ] **Step 1: Clarify the agent-construction coexistence test**
+- [x] **Step 1: Clarify the agent-construction coexistence test**
 
 Rename `TestBuildAgentAcceptsLocalToolAndMCPToolsets` to `TestBuildAgentAcceptsLocalToolAndCombinedToolsets`, and name the two stub Toolsets `mcp` and `skills`. The assertion remains that `buildAgent` accepts zero, one, and multiple Toolsets without replacing local tools.
 
-- [ ] **Step 2: Add the Skills package import and startup build**
+- [x] **Step 2: Add the Skills package import and startup build**
 
 Import `github.com/hexbee/adkgo-demo/internal/skillsruntime`. After MCP setup, build and append Skills without mutating the MCP result:
 
@@ -439,7 +439,7 @@ Import `github.com/hexbee/adkgo-demo/internal/skillsruntime`. After MCP setup, b
 
 Pass `toolsets`, rather than `mcpToolsets`, to `buildAgent`.
 
-- [ ] **Step 3: Add only project-specific Skill guidance**
+- [x] **Step 3: Add only project-specific Skill guidance**
 
 Extend the root instruction without duplicating ADK's built-in Skill Toolset instruction:
 
@@ -449,7 +449,7 @@ Use available project Skills when relevant and load their instructions before ac
 
 Keep the existing unrestricted-command warning and MCP confirmation sentence unchanged.
 
-- [ ] **Step 4: Verify and commit**
+- [x] **Step 4: Verify and commit**
 
 Run: `gofmt -w main.go main_test.go && go test . -count=1 && go test ./internal/skillsruntime -count=1`
 
