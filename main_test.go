@@ -24,13 +24,19 @@ func (s stubToolset) Name() string { return s.name }
 
 func (stubToolset) Tools(agent.ReadonlyContext) ([]tool.Tool, error) { return nil, nil }
 
-func TestBuildAgentAcceptsMCPToolsets(t *testing.T) {
+type stubTool struct{}
+
+func (stubTool) Name() string        { return "run_command" }
+func (stubTool) Description() string { return "test command tool" }
+func (stubTool) IsLongRunning() bool { return false }
+
+func TestBuildAgentAcceptsLocalToolAndMCPToolsets(t *testing.T) {
 	for _, toolsets := range [][]tool.Toolset{
 		nil,
 		{stubToolset{name: "one"}},
 		{stubToolset{name: "one"}, stubToolset{name: "two"}},
 	} {
-		if _, err := buildAgent(fakeModel{}, toolsets); err != nil {
+		if _, err := buildAgent(fakeModel{}, stubTool{}, toolsets); err != nil {
 			t.Fatalf("buildAgent(%d toolsets): %v", len(toolsets), err)
 		}
 	}

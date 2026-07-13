@@ -9,6 +9,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/hexbee/adkgo-demo/internal/commandtool"
 	"github.com/hexbee/adkgo-demo/internal/config"
 	"github.com/hexbee/adkgo-demo/internal/mcpconfig"
 	"github.com/hexbee/adkgo-demo/internal/mcpruntime"
@@ -39,7 +40,7 @@ func lookupTime(_ agent.Context, args timeArgs) (timeResult, error) {
 	return timeResult{Timezone: args.Timezone, Time: time.Now().In(location).Format(time.RFC3339)}, nil
 }
 
-func buildAgent(llm model.LLM, toolsets []tool.Toolset) (agent.Agent, error) {
+func buildAgent(llm model.LLM, commandTool tool.Tool, toolsets []tool.Toolset) (agent.Agent, error) {
 	timeTool, err := functiontool.New(functiontool.Config{
 		Name: "lookup_time", Description: "Returns the current time in an IANA timezone.",
 	}, lookupTime)
@@ -49,9 +50,9 @@ func buildAgent(llm model.LLM, toolsets []tool.Toolset) (agent.Agent, error) {
 	return llmagent.New(llmagent.Config{
 		Name:        "openai_compatible_assistant",
 		Description: "An assistant backed by an OpenAI-compatible endpoint.",
-		Instruction: "Be concise and helpful. Use lookup_time for timezone questions. Use available MCP tools when relevant; every remote MCP action requires explicit user confirmation before execution.",
+		Instruction: "Be concise and helpful. Use lookup_time for timezone questions. Use run_command for local shell or CLI tasks. Commands run immediately without confirmation or sandboxing. Use available MCP tools when relevant; every remote MCP action requires explicit user confirmation before execution.",
 		Model:       llm,
-		Tools:       []tool.Tool{timeTool},
+		Tools:       []tool.Tool{timeTool, commandTool},
 		Toolsets:    toolsets,
 	})
 }
@@ -73,6 +74,18 @@ func main() {
 	if err != nil {
 		log.Fatalf("create model: %v", err)
 	}
+	projectRoot, err := os.Getwd()
+	if err != nil {
+		log.Fatalf("resolve project root: %v", err)
+	}
+	commandRunner, err := commandtool.New(projectRoot)
+	if err != nil {
+		log.Fatalf("CLI setup error: %v", err)
+	}
+	commandTool, err := commandtool.NewTool(commandRunner)
+	if err != nil {
+		log.Fatalf("create CLI tool: %v", err)
+	}
 	mcpResult, err := mcpconfig.Load(".mcp.json")
 	if err != nil {
 		log.Fatalf("MCP configuration error: %v", err)
@@ -86,7 +99,7 @@ func main() {
 	} else {
 		log.Printf("no .mcp.json found; starting without MCP servers")
 	}
-	rootAgent, err := buildAgent(adaptedModel, mcpToolsets)
+	rootAgent, err := buildAgent(adaptedModel, commandTool, mcpToolsets)
 	if err != nil {
 		log.Fatalf("create agent: %v", err)
 	}
