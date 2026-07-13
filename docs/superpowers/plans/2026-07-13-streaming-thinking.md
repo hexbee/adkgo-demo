@@ -53,7 +53,7 @@
 - Produces: `Config.ThinkingMode string` and `Config.ReasoningEffort string`
 - Produces: normalized values consumed by `main.go` in Task 4
 
-- [ ] **Step 1: Extend test environment cleanup and write failing default tests**
+- [x] **Step 1: Extend test environment cleanup and write failing default tests**
 
 Add `THINKING_MODE` and `REASONING_EFFORT` to `clearConfigEnv`, then extend `TestLoadReadsDotEnv`:
 
@@ -90,13 +90,13 @@ if !strings.Contains(got.SafeSummary(), "thinking_mode=auto") {
 }
 ```
 
-- [ ] **Step 2: Run the default test and verify it fails**
+- [x] **Step 2: Run the default test and verify it fails**
 
 Run: `go test ./internal/config -run TestLoadReadsDotEnv -count=1`
 
 Expected: FAIL because the two `Config` fields do not exist.
 
-- [ ] **Step 3: Add accepted and rejected configuration tests**
+- [x] **Step 3: Add accepted and rejected configuration tests**
 
 Append:
 
@@ -145,7 +145,7 @@ func TestLoadRejectsInvalidThinkingConfiguration(t *testing.T) {
 }
 ```
 
-- [ ] **Step 4: Implement loading, validation, and safe summary**
+- [x] **Step 4: Implement loading, validation, and safe summary**
 
 Add fields and constants to `config.go`:
 
@@ -215,7 +215,7 @@ func (c Config) SafeSummary() string {
 }
 ```
 
-- [ ] **Step 5: Verify and commit**
+- [x] **Step 5: Verify and commit**
 
 Run: `gofmt -w internal/config/*.go && go test ./internal/config -count=1`
 
