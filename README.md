@@ -114,13 +114,13 @@ ADK 会向模型提供三个标准工具：
 使用 $follow-builders-lite 生成一份中文 AI builders 摘要。
 ```
 
-如果 Skill 要求执行 `scripts/...` 或其他 CLI，Agent 会调用现有的 `run_command`，并将 `working_directory` 设为对应的 `.agents/skills/<skill-name>`。Skill 激活和本地命令执行都不要求确认，也没有沙箱、白名单或 `allowed-tools` 强制检查；请只运行你信任的项目 Skills。MCP 远程工具仍然独立执行人工确认。
+如果 Skill 要求执行 `scripts/...` 或其他 CLI，Agent 会调用现有的 `run_command`，并将 `working_directory` 设为对应的 `.agents/skills/<skill-name>`。Skill 激活和本地命令执行都不要求确认，也没有沙箱、白名单或 `allowed-tools` 强制检查；请只运行你信任的项目 Skills。MCP 工具仍然独立执行人工确认。
 
 `skills-lock.json` 属于安装元数据，`agents/openai.yaml` 属于客户端展示元数据；当前运行时都不会读取它们。
 
 ## MCP 工具
 
-项目启动时会自动读取根目录的 `.mcp.json`，将其中的 HTTP MCP server 转换为 ADK Toolsets。每一个远程 MCP tool 在真正执行前都会要求人工确认；拒绝确认不会发出远程工具调用。
+项目启动时会自动读取根目录的 `.mcp.json`，将其中的 Streamable HTTP 或 stdio MCP server 转换为 ADK Toolsets。配置结构参考并兼容 Claude Code 项目级 `.mcp.json` 的 HTTP/stdio 子集；每一个 MCP tool 在真正执行前都会要求人工确认，拒绝确认不会执行工具。
 
 可以从安全模板开始：
 
@@ -128,7 +128,7 @@ ADK 会向模型提供三个标准工具：
 cp .mcp.example.json .mcp.json
 ```
 
-支持的配置结构为：
+Streamable HTTP 配置：
 
 ```json
 {
@@ -137,16 +137,40 @@ cp .mcp.example.json .mcp.json
       "type": "http",
       "url": "https://mcp.example.test/mcp",
       "headers": {
-        "Authorization": "Bearer REPLACE_ME"
+        "Authorization": "Bearer ${MCP_HTTP_TOKEN}"
       }
     }
   }
 }
 ```
 
-当前迭代只支持 `type: "http"`，暂不支持 stdio。连接在 Agent 首次获取工具列表时懒创建，因此启动程序本身不会调用远端 MCP。不同 server 应避免暴露同名 tool。
+stdio 配置：
 
-`.mcp.json` 通常包含 token 或 API key，已经加入 `.gitignore`。程序不会打印 headers、完整 query 参数或原始 MCP 配置。
+```json
+{
+  "mcpServers": {
+    "local-example": {
+      "type": "stdio",
+      "command": "npx",
+      "args": ["-y", "YOUR_MCP_SERVER_PACKAGE"],
+      "env": {
+        "SERVICE_TOKEN": "${SERVICE_TOKEN}"
+      },
+      "cwd": "."
+    }
+  }
+}
+```
+
+`command` 是可执行文件，`args` 是参数数组；程序不会用 shell 拼接或解释它们。`env` 可选，会继承当前进程环境并覆盖同名变量。为了兼容 Claude Code 的旧式 stdio 配置，有 `command` 时可以省略 `type: "stdio"`。
+
+配置值支持 Claude Code 风格的环境变量展开：`${VAR}` 要求变量存在，`${VAR:-default}` 在变量未设置或为空时使用默认值。展开适用于 `command`、`args`、`env`、HTTP `url` 和 `headers`。本项目额外支持可选的 `cwd`，也可使用相同的变量展开语法；相对路径从程序启动目录解析。
+
+连接在 Agent 首次获取工具列表时懒创建，因此启动程序本身不会连接 HTTP server 或启动 stdio 子进程。stdio 子进程的启动属于工具发现，不会额外弹出确认；之后每次实际工具调用仍会确认。不同 server 应避免暴露同名 tool。
+
+Claude Code 将项目级 `.mcp.json` 设计成可提交的共享配置，并在首次执行项目 MCP server 前要求用户信任。本项目目前还没有这层“信任项目配置”确认，因此 `.mcp.json` 仍然加入 `.gitignore`，仓库只提交 `.mcp.example.json`。程序不会打印 headers、stdio command/args、完整 query 参数或原始 MCP 配置。stdio server 是以当前程序用户的权限运行的本地进程，请只配置你信任的命令和包。
+
+格式参考：[Claude Code MCP 文档](https://code.claude.com/docs/en/mcp)。
 
 Console 和 Web UI 都会加载同一份 MCP 配置：
 

@@ -1,11 +1,20 @@
 {
   "mcpServers": {
-    "example": {
+    "http-example": {
       "type": "http",
       "url": "https://mcp.example.test/mcp",
       "headers": {
-        "Authorization": "Bearer REPLACE_ME"
+        "Authorization": "Bearer ${MCP_HTTP_TOKEN}"
       }
+    },
+    "stdio-example": {
+      "type": "stdio",
+      "command": "REPLACE_WITH_MCP_SERVER_COMMAND",
+      "args": ["--example-arg"],
+      "env": {
+        "EXAMPLE_TOKEN": "${EXAMPLE_TOKEN}"
+      },
+      "cwd": "."
     }
   }
 }

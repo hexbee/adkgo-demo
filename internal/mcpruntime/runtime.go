@@ -1,8 +1,12 @@
 package mcpruntime
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"net/http"
+	"os/exec"
+	"sort"
 	"strings"
 	"unicode"
 
@@ -16,6 +20,13 @@ import (
 type headerTransport struct {
 	base    http.RoundTripper
 	headers http.Header
+}
+
+type stdioTransport struct {
+	command string
+	args    []string
+	env     map[string]string
+	cwd     string
 }
 
 type namedToolset struct {
@@ -50,22 +61,58 @@ func (t *headerTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	return base.RoundTrip(clone)
 }
 
+func (t *stdioTransport) Connect(ctx context.Context) (mcp.Connection, error) {
+	cmd := exec.Command(t.command, t.args...)
+	cmd.Dir = t.cwd
+	if len(t.env) > 0 {
+		env := cmd.Environ()
+		keys := make([]string, 0, len(t.env))
+		for key := range t.env {
+			keys = append(keys, key)
+		}
+		sort.Strings(keys)
+		for _, key := range keys {
+			env = append(env, key+"="+t.env[key])
+		}
+		cmd.Env = env
+	}
+	connection, err := (&mcp.CommandTransport{Command: cmd}).Connect(ctx)
+	if err != nil {
+		return nil, errors.New("failed to start stdio MCP server process")
+	}
+	return connection, nil
+}
+
 func Build(servers []mcpconfig.Server) ([]tool.Toolset, error) {
 	result := make([]tool.Toolset, 0, len(servers))
 	for _, server := range servers {
+		transport, err := buildTransport(server)
+		if err != nil {
+			return nil, err
+		}
+		toolset, err := mcptoolset.New(mcptoolset.Config{Transport: transport, RequireConfirmation: true})
+		if err != nil {
+			return nil, fmt.Errorf("create MCP toolset for %s (%s): %w", server.Name, server.SafeTarget(), err)
+		}
+		result = append(result, &namedToolset{name: toolsetName(server.Name), safeEndpoint: server.SafeTarget(), inner: toolset})
+	}
+	return result, nil
+}
+
+func buildTransport(server mcpconfig.Server) (mcp.Transport, error) {
+	switch server.Type {
+	case mcpconfig.TypeHTTP:
 		headers := make(http.Header, len(server.Headers))
 		for name, value := range server.Headers {
 			headers.Set(name, value)
 		}
 		client := &http.Client{Transport: &headerTransport{base: http.DefaultTransport, headers: headers}}
-		transport := &mcp.StreamableClientTransport{Endpoint: server.URL, HTTPClient: client}
-		toolset, err := mcptoolset.New(mcptoolset.Config{Transport: transport, RequireConfirmation: true})
-		if err != nil {
-			return nil, fmt.Errorf("create MCP toolset for %s (%s): %w", server.Name, server.SafeEndpoint(), err)
-		}
-		result = append(result, &namedToolset{name: toolsetName(server.Name), safeEndpoint: server.SafeEndpoint(), inner: toolset})
+		return &mcp.StreamableClientTransport{Endpoint: server.URL, HTTPClient: client}, nil
+	case mcpconfig.TypeStdio:
+		return &stdioTransport{command: server.Command, args: server.Args, env: server.Env, cwd: server.CWD}, nil
+	default:
+		return nil, fmt.Errorf("create MCP transport for %s: unsupported type", server.Name)
 	}
-	return result, nil
 }
 
 func toolsetName(serverName string) string {
