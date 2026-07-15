@@ -3,12 +3,21 @@ package main
 import (
 	"context"
 	"iter"
+	"strings"
 	"testing"
 
 	"google.golang.org/adk/v2/agent"
 	"google.golang.org/adk/v2/model"
 	"google.golang.org/adk/v2/tool"
 )
+
+func TestAgentInstructionIncludesMathFormattingContract(t *testing.T) {
+	for _, want := range []string{"KaTeX-compatible TeX", `\(...\)`, `\[...\]`, "do not use single-dollar math delimiters"} {
+		if !strings.Contains(agentInstruction, want) {
+			t.Errorf("agent instruction missing %q", want)
+		}
+	}
+}
 
 type fakeModel struct{}
 

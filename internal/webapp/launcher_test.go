@@ -49,6 +49,11 @@ func TestHandlerServesWorkbenchWithSecurityHeaders(t *testing.T) {
 			t.Fatalf("web app body missing one-shot execution mode marker %q", marker)
 		}
 	}
+	for _, marker := range []string{"/assets/vendor/katex/katex.min.css", "/assets/vendor/katex/katex.min.js", "/assets/vendor/katex/contrib/auto-render.min.js"} {
+		if !strings.Contains(recorder.Body.String(), marker) {
+			t.Fatalf("web app body missing KaTeX asset %q", marker)
+		}
+	}
 	if got := recorder.Header().Get("Content-Security-Policy"); !strings.Contains(got, "default-src 'self'") {
 		t.Fatalf("Content-Security-Policy = %q", got)
 	}
@@ -95,10 +100,35 @@ func TestHandlerServesEmbeddedAssets(t *testing.T) {
 		"请求参数",
 		"执行结果",
 		"renderMarkdownTable",
+		"renderMarkdownMathBlock",
+		"scheduleMathRender",
+		`{ left: "\\[", right: "\\]", display: true }`,
 		"message-table-scroll",
 	} {
 		if !strings.Contains(recorder.Body.String(), marker) {
 			t.Fatalf("app.js missing tool disclosure marker %q", marker)
+		}
+	}
+}
+
+func TestHandlerServesNestedKaTeXAssets(t *testing.T) {
+	tests := []struct {
+		path   string
+		marker string
+	}{
+		{path: "/assets/vendor/katex/katex.min.css", marker: ".katex"},
+		{path: "/assets/vendor/katex/katex.min.js", marker: "ParseError"},
+		{path: "/assets/vendor/katex/contrib/auto-render.min.js", marker: "renderMathInElement"},
+	}
+	for _, test := range tests {
+		recorder := httptest.NewRecorder()
+		testHandler(t).ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, test.path, nil))
+		if recorder.Code != http.StatusOK {
+			t.Errorf("GET %s status = %d", test.path, recorder.Code)
+			continue
+		}
+		if !strings.Contains(recorder.Body.String(), test.marker) {
+			t.Errorf("GET %s body missing %q", test.path, test.marker)
 		}
 	}
 }
@@ -140,6 +170,18 @@ func TestMarkdownTableStylesAreEmbedded(t *testing.T) {
 	} {
 		if !strings.Contains(css, rule) {
 			t.Fatalf("styles.css missing Markdown table rule %q", rule)
+		}
+	}
+}
+
+func TestMathStylesAreEmbedded(t *testing.T) {
+	styles, err := staticFiles.ReadFile("static/styles.css")
+	if err != nil {
+		t.Fatalf("read embedded styles: %v", err)
+	}
+	for _, rule := range []string{".message-math-block", ".message-content .katex-display", ".message-content .katex-error"} {
+		if !strings.Contains(string(styles), rule) {
+			t.Fatalf("styles.css missing math rule %q", rule)
 		}
 	}
 }

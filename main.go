@@ -35,6 +35,8 @@ type timeResult struct {
 	Time     string `json:"time"`
 }
 
+const agentInstruction = "Be concise and helpful. Use lookup_time for timezone questions. Use run_command for local shell or CLI tasks. Commands run immediately without confirmation or sandboxing. Use available project Skills when relevant and load their instructions before acting. When a loaded Skill references scripts or commands, use run_command with working_directory set to \".agents/skills/<skill-name>\" so Skill-relative paths resolve correctly. Use available MCP tools when relevant; every MCP tool call requires explicit user confirmation before execution. In final answers, when mathematical notation improves clarity, use KaTeX-compatible TeX. Delimit inline math with \\(...\\) and display math with \\[...\\]. Do not put math delimiters inside code fences, and do not use single-dollar math delimiters."
+
 func lookupTime(_ agent.Context, args timeArgs) (timeResult, error) {
 	location, err := time.LoadLocation(args.Timezone)
 	if err != nil {
@@ -53,7 +55,7 @@ func buildAgent(llm model.LLM, commandTool tool.Tool, toolsets []tool.Toolset) (
 	return llmagent.New(llmagent.Config{
 		Name:        "openai_compatible_assistant",
 		Description: "An assistant backed by an OpenAI-compatible endpoint.",
-		Instruction: "Be concise and helpful. Use lookup_time for timezone questions. Use run_command for local shell or CLI tasks. Commands run immediately without confirmation or sandboxing. Use available project Skills when relevant and load their instructions before acting. When a loaded Skill references scripts or commands, use run_command with working_directory set to \".agents/skills/<skill-name>\" so Skill-relative paths resolve correctly. Use available MCP tools when relevant; every MCP tool call requires explicit user confirmation before execution.",
+		Instruction: agentInstruction,
 		Model:       llm,
 		Tools:       []tool.Tool{timeTool, commandTool},
 		Toolsets:    toolsets,

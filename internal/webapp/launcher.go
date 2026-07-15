@@ -146,7 +146,7 @@ func newHandler(cfg *launcher.Config, webCfg *config) (http.Handler, error) {
 	router := mux.NewRouter()
 	router.PathPrefix("/api/").Handler(http.StripPrefix("/api", restServer))
 	router.Handle("/api", http.StripPrefix("/api", restServer))
-	router.Handle("/assets/{name}", http.StripPrefix("/assets/", http.FileServer(http.FS(assets)))).Methods(http.MethodGet)
+	router.PathPrefix("/assets/").Handler(http.StripPrefix("/assets/", http.FileServer(http.FS(assets)))).Methods(http.MethodGet)
 	router.HandleFunc("/favicon.svg", serveAsset(assets, "favicon.svg", "image/svg+xml")).Methods(http.MethodGet)
 	router.HandleFunc("/", serveAsset(assets, "index.html", "text/html; charset=utf-8")).Methods(http.MethodGet)
 	return securityHeaders(router), nil

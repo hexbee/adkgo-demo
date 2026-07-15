@@ -52,6 +52,7 @@ const state = {
   pendingDeleteId: "",
   lastPrompt: "",
   toastTimer: null,
+  mathRenderFrame: 0,
   executionDisclosurePreferences: new Map(),
 };
 localStorage.setItem("adk-workbench-user", state.userId);
@@ -230,6 +231,7 @@ function renderMessages() {
   for (const detail of els.messageList.querySelectorAll("details:not(.execution-group)[data-disclosure-id]")) {
     if (openDisclosures.has(detail.dataset.disclosureId)) detail.open = true;
   }
+  scheduleMathRender();
 }
 
 function renderMessage(message) {
@@ -766,6 +768,13 @@ function renderMarkdown(text) {
     for (let lineIndex = 0; lineIndex < lines.length; lineIndex += 1) {
       const line = lines[lineIndex];
       const trimmed = line.trim();
+      const mathBlock = renderMarkdownMathBlock(lines, lineIndex);
+      if (mathBlock) {
+        if (listOpen) { html += "</ul>"; listOpen = false; }
+        html += mathBlock.html;
+        lineIndex = mathBlock.nextIndex - 1;
+        continue;
+      }
       const table = renderMarkdownTable(lines, lineIndex);
       if (table) {
         if (listOpen) { html += "</ul>"; listOpen = false; }
@@ -788,6 +797,30 @@ function renderMarkdown(text) {
     if (listOpen) html += "</ul>";
     return html;
   }).join("");
+}
+
+function renderMarkdownMathBlock(lines, startIndex) {
+  const opening = lines[startIndex].trim();
+  const delimiter = opening.startsWith("\\[")
+    ? { left: "\\[", right: "\\]" }
+    : opening.startsWith("$$")
+      ? { left: "$$", right: "$$" }
+      : null;
+  if (!delimiter) return null;
+
+  const source = [];
+  for (let index = startIndex; index < lines.length; index += 1) {
+    source.push(lines[index]);
+    const current = lines[index].trim();
+    const closingOffset = index === startIndex ? delimiter.left.length : 0;
+    if (current.indexOf(delimiter.right, closingOffset) >= 0) {
+      return {
+        html: `<div class="message-math-block">${escapeHTML(source.join("\n"))}</div>`,
+        nextIndex: index + 1,
+      };
+    }
+  }
+  return null;
 }
 
 function renderMarkdownTable(lines, startIndex) {
@@ -865,6 +898,28 @@ function inlineMarkdown(text) {
   value = value.replace(/`([^`]+)`/g, "<code>$1</code>");
   value = value.replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, '<a href="$2" target="_blank" rel="noreferrer">$1</a>');
   return value;
+}
+
+function scheduleMathRender() {
+  window.cancelAnimationFrame(state.mathRenderFrame);
+  state.mathRenderFrame = window.requestAnimationFrame(() => {
+    state.mathRenderFrame = 0;
+    if (typeof window.renderMathInElement !== "function" || !els.messageList.isConnected) return;
+    try {
+      window.renderMathInElement(els.messageList, {
+        delimiters: [
+          { left: "$$", right: "$$", display: true },
+          { left: "\\[", right: "\\]", display: true },
+          { left: "\\(", right: "\\)", display: false },
+        ],
+        throwOnError: false,
+        trust: false,
+        ignoredTags: ["script", "noscript", "style", "textarea", "pre", "code", "option"],
+      });
+    } catch (error) {
+      console.warn("Math rendering failed", error);
+    }
+  });
 }
 
 function escapeHTML(value) {
