@@ -417,6 +417,7 @@ svg {
 .message-meta { gap: 8px; margin-bottom: 9px; color: var(--ink-faint); font-size: 11px; }
 .message-meta .author { color: var(--ink-soft); font-weight: 700; }
 .message.user .message-meta { flex-direction: row-reverse; }
+.message-mode { padding: 1px 5px; border: 1px solid #d9a26e; border-radius: 4px; background: #fbf2e7; color: var(--warning); font-size: 9px; font-weight: 650; }
 
 .message-content {
   font-size: 14px;
@@ -578,8 +579,31 @@ svg {
 .composer textarea { display: block; width: 100%; max-height: 170px; padding: 0 1px; border: 0; outline: 0; background: transparent; color: var(--ink); line-height: 1.55; resize: none; }
 .composer textarea::placeholder { color: #90968f; }
 .composer textarea:disabled { cursor: not-allowed; }
-.composer-footer { justify-content: space-between; margin-top: 11px; }
+.composer-footer { justify-content: space-between; gap: 12px; margin-top: 11px; }
 .composer-footer > span { color: var(--ink-faint); font-size: 10px; }
+.composer-options { position: relative; display: flex; align-items: center; margin-right: auto; }
+.execution-mode-control { display: flex; align-items: center; gap: 6px; min-height: 28px; padding: 4px 7px; border: 0; border-radius: var(--radius-sm); background: transparent; color: var(--ink-soft); font-size: 10px; font-weight: 650; cursor: pointer; transition: color 140ms ease, background 140ms ease; }
+.execution-mode-control:hover:not(:disabled), .execution-mode-control[aria-expanded="true"] { background: var(--surface-muted); color: var(--ink); }
+.execution-mode-control.auto { background: var(--accent-soft); color: #824726; }
+.execution-mode-control:focus-visible { outline: 2px solid color-mix(in srgb, var(--brand) 28%, transparent); outline-offset: 1px; }
+.execution-mode-control:disabled { cursor: not-allowed; opacity: .55; }
+.mode-shield { width: 14px; height: 14px; stroke-width: 1.65; }
+.mode-chevron { width: 6px; height: 6px; margin: 3px 1px 0 2px; border-top: 1.5px solid currentColor; border-left: 1.5px solid currentColor; transform: rotate(45deg); transition: transform 140ms ease; }
+.execution-mode-control[aria-expanded="true"] .mode-chevron { margin-top: -2px; transform: rotate(225deg); }
+.execution-mode-menu { position: absolute; left: 0; bottom: calc(100% + 8px); z-index: 16; width: 246px; padding: 6px; border: 1px solid var(--line); border-radius: var(--radius-md); background: var(--surface-strong); box-shadow: 0 14px 38px rgb(29 33 30 / 16%); transform-origin: bottom left; }
+.execution-mode-option { display: flex; width: 100%; min-height: 52px; align-items: center; justify-content: space-between; gap: 16px; padding: 8px 10px; border: 0; border-radius: 7px; background: transparent; color: var(--ink); text-align: left; cursor: pointer; }
+.execution-mode-option:hover, .execution-mode-option:focus-visible { background: var(--surface); }
+.execution-mode-option:focus-visible { outline: 2px solid color-mix(in srgb, var(--brand) 24%, transparent); outline-offset: -2px; }
+.execution-mode-option.selected { background: var(--brand-soft); color: var(--brand); }
+.execution-mode-option > span { display: grid; gap: 3px; }
+.execution-mode-option strong { font-size: 11px; font-weight: 700; }
+.execution-mode-option small { color: var(--ink-faint); font-size: 9px; line-height: 1.35; }
+.mode-option-check { width: 14px; height: 14px; flex: none; opacity: 0; }
+.execution-mode-option.selected .mode-option-check { opacity: 1; }
+@media (prefers-reduced-motion: no-preference) {
+  .execution-mode-menu:not([hidden]) { animation: mode-menu-in 140ms ease-out; }
+}
+@keyframes mode-menu-in { from { opacity: 0; transform: translateY(4px) scale(.985); } }
 kbd { padding: 1px 3px; border: 1px solid var(--line); border-bottom-color: var(--line-strong); border-radius: 3px; background: var(--surface); font: 9px var(--mono); }
 .send-button { display: grid; width: 32px; height: 32px; place-items: center; padding: 0; border: 0; border-radius: 9px; background: var(--brand); color: white; cursor: pointer; }
 .send-button:hover:not(:disabled) { background: var(--brand-hover); }
@@ -667,7 +691,8 @@ kbd { padding: 1px 3px; border: 1px solid var(--line); border-bottom-color: var(
   .message.user .message-content { max-width: 94%; }
   .composer-wrap { padding: 8px 14px 10px; }
   .composer-footer > span { display: none; }
-  .composer-footer { justify-content: flex-end; }
+  .composer-footer { justify-content: space-between; }
+  .execution-mode-menu { width: min(246px, calc(100vw - 58px)); }
   .privacy-note { display: none; }
 }
 

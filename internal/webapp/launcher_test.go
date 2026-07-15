@@ -44,6 +44,11 @@ func TestHandlerServesWorkbenchWithSecurityHeaders(t *testing.T) {
 	if body := recorder.Body.String(); !strings.Contains(body, "Agent Workbench") || strings.Contains(body, "ADK Web UI") {
 		t.Fatalf("unexpected web app body: %q", body[:min(len(body), 200)])
 	}
+	for _, marker := range []string{`id="confirmation-mode-menu"`, "逐项确认", "本次授权", "下一条任务中的工具自动执行"} {
+		if !strings.Contains(recorder.Body.String(), marker) {
+			t.Fatalf("web app body missing one-shot execution mode marker %q", marker)
+		}
+	}
 	if got := recorder.Header().Get("Content-Security-Policy"); !strings.Contains(got, "default-src 'self'") {
 		t.Fatalf("Content-Security-Policy = %q", got)
 	}
@@ -75,6 +80,9 @@ func TestHandlerServesEmbeddedAssets(t *testing.T) {
 		`<details class="execution-group`,
 		`<details class="tool-card`,
 		"executionItems",
+		"confirmationResponse",
+		"本次授权已生效",
+		"confirmationMode === \"auto\"",
 		"executionSummary",
 		"updateThoughtItem",
 		"execution-timeline",
@@ -107,6 +115,9 @@ func TestExecutionDisclosureStylesAreEmbedded(t *testing.T) {
 		"min-height: 38px;",
 		".execution-timeline {",
 		".thought-preview {",
+		".execution-mode-control {",
+		".execution-mode-control.auto {",
+		".execution-mode-menu {",
 		"min-height: 34px;",
 	} {
 		if !strings.Contains(css, rule) {

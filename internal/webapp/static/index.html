@@ -114,6 +114,24 @@
           <label class="sr-only" for="composer-input">输入任务</label>
           <textarea id="composer-input" rows="1" maxlength="12000" placeholder="描述目标，或让 Agent 调用工具…" aria-describedby="composer-hint"></textarea>
           <div class="composer-footer">
+            <div class="composer-options">
+              <input id="confirmation-mode" type="hidden" value="confirm">
+              <button class="execution-mode-control" id="execution-mode-control" type="button" aria-haspopup="menu" aria-controls="confirmation-mode-menu" aria-expanded="false">
+                <svg class="mode-shield" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3 5.5 5.6v5.5c0 4.1 2.6 7.8 6.5 9.2 3.9-1.4 6.5-5.1 6.5-9.2V5.6L12 3Z"/><path d="m9.2 11.8 1.8 1.8 3.9-4"/></svg>
+                <span id="confirmation-mode-label">逐项确认</span>
+                <span class="mode-chevron" aria-hidden="true"></span>
+              </button>
+              <div class="execution-mode-menu" id="confirmation-mode-menu" role="menu" aria-label="工具执行方式" hidden>
+                <button class="execution-mode-option selected" type="button" role="menuitemradio" aria-checked="true" data-confirmation-mode="confirm">
+                  <span><strong>逐项确认</strong><small>工具执行前由你决定</small></span>
+                  <svg class="mode-option-check" viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12 4 4L19 6"/></svg>
+                </button>
+                <button class="execution-mode-option" type="button" role="menuitemradio" aria-checked="false" data-confirmation-mode="auto">
+                  <span><strong>本次授权</strong><small>下一条任务中的工具自动执行</small></span>
+                  <svg class="mode-option-check" viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12 4 4L19 6"/></svg>
+                </button>
+              </div>
+            </div>
             <span id="composer-hint"><kbd>Enter</kbd> 发送 · <kbd>Shift</kbd> + <kbd>Enter</kbd> 换行</span>
             <button class="send-button" id="send-button" type="submit" aria-label="发送任务" disabled>
               <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14m-5-5 5 5-5 5"/></svg>

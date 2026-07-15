@@ -15,6 +15,11 @@ const els = {
   form: $("#composer-form"),
   input: $("#composer-input"),
   send: $("#send-button"),
+  confirmationMode: $("#confirmation-mode"),
+  executionModeControl: $("#execution-mode-control"),
+  confirmationModeMenu: $("#confirmation-mode-menu"),
+  confirmationModeLabel: $("#confirmation-mode-label"),
+  confirmationModeOptions: [...document.querySelectorAll("[data-confirmation-mode]")],
   progressNote: $("#progress-note"),
   progressText: $("#progress-text"),
   stopRun: $("#stop-run"),
@@ -168,6 +173,7 @@ function newMessage(role, text = "", id = crypto.randomUUID()) {
     role,
     text,
     executionItems: [],
+    confirmationMode: "confirm",
     error: "",
     streaming: false,
     timestamp: Date.now(),
@@ -228,6 +234,9 @@ function renderMessages() {
 
 function renderMessage(message) {
   const isUser = message.role === "user";
+  const modeBadge = isUser && message.confirmationMode === "auto"
+    ? '<span class="message-mode">本次授权</span>'
+    : "";
   const execution = !isUser && message.executionItems.length
     ? renderExecution(message)
     : "";
@@ -240,7 +249,7 @@ function renderMessage(message) {
     ? `<div class="message-error"><strong>运行没有完成</strong><span>${escapeHTML(message.error)}</span>${state.lastPrompt ? '<br><button class="text-button" type="button" data-retry>重试上次任务</button>' : ""}</div>`
     : "";
   return `<article class="message ${isUser ? "user" : "assistant"}" data-message-id="${escapeAttr(message.id)}">
-    <div class="message-meta"><span class="author">${isUser ? "你" : "Agent"}</span><time>${formatTime(message.timestamp)}</time></div>
+    <div class="message-meta"><span class="author">${isUser ? "你" : "Agent"}</span><time>${formatTime(message.timestamp)}</time>${modeBadge}</div>
     ${execution}<div class="message-content">${content}</div>${error}
   </article>`;
 }
@@ -249,13 +258,14 @@ function renderExecution(message) {
   const items = message.executionItems;
   const activities = items.filter((item) => item.type !== "thought");
   const waiting = activities.some((activity) => activity.type === "approval" && activity.status === "pending");
+  const autoPending = waiting && message.confirmationMode === "auto";
   const rejected = activities.some((activity) => activity.status === "rejected");
   const running = message.streaming || activities.some((activity) => activity.status === "running");
   const preference = state.executionDisclosurePreferences.get(message.id);
   const needsAttention = running || waiting || Boolean(message.error);
   const expanded = preference === "open" || (needsAttention && preference !== "closed");
   const status = waiting
-    ? { label: "等待确认", className: " pending", icon: icons.alert }
+    ? { label: autoPending ? "自动执行中" : "等待确认", className: " pending", icon: icons.alert }
     : message.error
       ? { label: "未完成", className: " rejected", icon: icons.alert }
       : running
@@ -265,7 +275,7 @@ function renderExecution(message) {
           : { label: "全部完成", className: " success", icon: icons.check };
   const timeline = items.map((item) => item.type === "thought"
     ? renderThought(item, message.id)
-    : renderActivity(item, message.id)).join("");
+    : renderActivity(item, message.id, message.confirmationMode)).join("");
   return `<details class="execution-group${status.className}" data-message-id="${escapeAttr(message.id)}" data-disclosure-id="execution-${escapeAttr(message.id)}"${expanded ? " open" : ""}>
     <summary class="execution-summary"><span class="execution-icon">${status.icon}</span><strong>执行过程</strong><span class="execution-meta">${escapeHTML(executionSummary(items))}</span><span class="execution-status">${escapeHTML(status.label)}</span><span class="tool-chevron" aria-hidden="true"></span></summary>
     <div class="execution-body"><div class="execution-timeline">${timeline}</div></div>
@@ -305,17 +315,20 @@ function renderThought(thought, messageId) {
   </details>`;
 }
 
-function renderActivity(activity, messageId) {
+function renderActivity(activity, messageId, confirmationMode = "confirm") {
   const isApproval = activity.type === "approval";
+  const autoPending = isApproval && activity.status === "pending" && confirmationMode === "auto";
   const className = activity.status === "approved" || activity.status === "completed" ? " success" : activity.status === "rejected" ? " rejected" : "";
-  const statusLabel = {
+  let statusLabel = {
     pending: "等待确认",
     running: "执行中",
     completed: "已完成",
     approved: "已允许",
     rejected: "已拒绝",
   }[activity.status] || activity.status;
-  const actions = isApproval && activity.status === "pending"
+  if (autoPending) statusLabel = "自动执行中";
+  if (activity.autoApproved) statusLabel = "已自动授权";
+  const actions = isApproval && activity.status === "pending" && !autoPending
     ? `<div class="approval-actions">
         <button class="approve-button" type="button" data-confirm-call="${escapeAttr(activity.id)}" data-confirm-event="${escapeAttr(activity.eventId || "")}" data-approved="true">允许执行</button>
         <button class="reject-button" type="button" data-confirm-call="${escapeAttr(activity.id)}" data-confirm-event="${escapeAttr(activity.eventId || "")}" data-approved="false">拒绝</button>
@@ -328,9 +341,14 @@ function renderActivity(activity, messageId) {
     ? `<section class="tool-detail-group"><span>执行结果</span><pre>${escapeHTML(activity.responseDetail)}</pre></section>`
     : "";
   const expanded = isApproval && activity.status === "pending" ? " open" : "";
+  const hint = activity.autoApproved
+    ? "已按本次授权自动继续。"
+    : autoPending
+      ? "将在本次授权范围内自动继续。"
+      : activity.hint;
   return `<details class="tool-card execution-step${isApproval ? " approval" : ""}${className}" data-disclosure-id="activity-${escapeAttr(messageId)}-${escapeAttr(activity.id)}"${expanded}>
     <summary class="tool-heading"><span class="tool-icon">${isApproval ? icons.alert : activity.status === "completed" ? icons.check : icons.tool}</span><strong>${escapeHTML(activity.title)}</strong><span class="tool-status">${escapeHTML(statusLabel)}</span><span class="tool-chevron" aria-hidden="true"></span></summary>
-    <div class="tool-detail-body">${activity.hint ? `<p>${escapeHTML(activity.hint)}</p>` : ""}${request}${response}${actions}</div>
+    <div class="tool-detail-body">${hint ? `<p>${escapeHTML(hint)}</p>` : ""}${request}${response}${actions}</div>
   </details>`;
 }
 
@@ -361,10 +379,16 @@ function addTimeline(type, title, detail = "") {
 async function submitText(text) {
   const prompt = text.trim();
   if (!prompt || state.running || !state.currentSession) return;
+  const confirmationMode = els.confirmationMode.value === "auto" ? "auto" : "confirm";
   state.lastPrompt = prompt;
   const user = newMessage("user", prompt);
   const assistant = newMessage("assistant");
+  user.confirmationMode = confirmationMode;
+  assistant.confirmationMode = confirmationMode;
   assistant.streaming = true;
+  els.confirmationMode.value = "confirm";
+  updateConfirmationMode();
+  setConfirmationModeMenu(false);
   state.messages.push(user, assistant);
   state.currentSession.events = state.currentSession.events || [];
   state.currentSession.events.push({ author: "user", content: { parts: [{ text: prompt }] } });
@@ -380,34 +404,49 @@ async function submitText(text) {
 async function runAgent(content, assistant, functionCallEventId = "") {
   setRunning(true);
   state.controller = new AbortController();
+  let nextContent = content;
+  let nextFunctionCallEventId = functionCallEventId;
   let slowTimer = window.setTimeout(() => {
     els.progressText.textContent = "任务仍在执行，可查看记录或停止";
   }, 10000);
   try {
-    const body = {
-      appName: state.appName,
-      userId: state.userId,
-      sessionId: state.currentSession.id,
-      newMessage: content,
-      streaming: true,
-    };
-    if (functionCallEventId) body.functionCallEventId = functionCallEventId;
-    const response = await fetch(apiPath("/run_sse"), {
-      method: "POST",
-      headers: { "Content-Type": "application/json", Accept: "text/event-stream" },
-      body: JSON.stringify(body),
-      signal: state.controller.signal,
-    });
-    if (!response.ok) throw new Error((await response.text()).trim() || `请求失败 (${response.status})`);
-    if (!response.body) throw new Error("服务没有返回可读取的流");
-    await readEventStream(response.body, (eventName, data) => {
-      if (eventName === "error") {
-        const parsed = safeJSON(data);
-        throw new Error(parsed?.error || data || "Agent 运行失败");
-      }
-      const event = safeJSON(data);
-      if (event) processEvent(event, assistant);
-    });
+    while (true) {
+      const body = {
+        appName: state.appName,
+        userId: state.userId,
+        sessionId: state.currentSession.id,
+        newMessage: nextContent,
+        streaming: true,
+      };
+      if (nextFunctionCallEventId) body.functionCallEventId = nextFunctionCallEventId;
+      const response = await fetch(apiPath("/run_sse"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Accept: "text/event-stream" },
+        body: JSON.stringify(body),
+        signal: state.controller.signal,
+      });
+      if (!response.ok) throw new Error((await response.text()).trim() || `请求失败 (${response.status})`);
+      if (!response.body) throw new Error("服务没有返回可读取的流");
+      await readEventStream(response.body, (eventName, data) => {
+        if (eventName === "error") {
+          const parsed = safeJSON(data);
+          throw new Error(parsed?.error || data || "Agent 运行失败");
+        }
+        const event = safeJSON(data);
+        if (event) processEvent(event, assistant);
+      });
+      const pendingApproval = assistant.confirmationMode === "auto"
+        ? assistant.executionItems.find((item) => item.type === "approval" && item.status === "pending")
+        : null;
+      if (!pendingApproval) break;
+      pendingApproval.status = "approved";
+      pendingApproval.autoApproved = true;
+      assistant.streaming = true;
+      renderMessages();
+      addTimeline("tool", "本次授权已生效", pendingApproval.title);
+      nextContent = confirmationResponse(pendingApproval.id, true);
+      nextFunctionCallEventId = pendingApproval.eventId;
+    }
     assistant.streaming = false;
     if (!assistant.text && !assistant.executionItems.length && !assistant.error) {
       assistant.error = "运行结束，但服务没有返回可显示的结果。";
@@ -546,7 +585,7 @@ function handleFunctionCall(call, event, assistant, record) {
     status: isApproval ? "pending" : "running",
   };
   assistant.executionItems.push(activity);
-  if (isApproval) openInspector(true);
+  if (isApproval && assistant.confirmationMode !== "auto") openInspector(true);
   if (record) addTimeline("tool", isApproval ? "等待工具确认" : activity.title, activity.requestDetail);
 }
 
@@ -582,10 +621,15 @@ async function respondToConfirmation(callId, approved, eventId) {
   }
   if (!targetMessage || !targetActivity || targetActivity.status !== "pending") return;
   targetActivity.status = approved ? "approved" : "rejected";
+  targetActivity.autoApproved = false;
   targetMessage.streaming = true;
   renderMessages();
   addTimeline("tool", approved ? "已允许工具调用" : "已拒绝工具调用", targetActivity.title);
-  await runAgent({
+  await runAgent(confirmationResponse(callId, approved), targetMessage, eventId);
+}
+
+function confirmationResponse(callId, approved) {
+  return {
     role: "user",
     parts: [{
       functionResponse: {
@@ -594,13 +638,15 @@ async function respondToConfirmation(callId, approved, eventId) {
         response: { confirmed: approved },
       },
     }],
-  }, targetMessage, eventId);
+  };
 }
 
 function setRunning(running) {
   state.running = running;
   els.input.disabled = running;
   els.newSession.disabled = running;
+  els.executionModeControl.disabled = running;
+  if (running) setConfirmationModeMenu(false);
   els.progressNote.hidden = !running;
   els.progressText.textContent = "Agent 正在处理";
   els.runState.className = `run-state${running ? " running" : ""}`;
@@ -628,6 +674,34 @@ function showConnectionError(error) {
 
 function updateComposer() {
   els.send.disabled = state.running || els.input.disabled || !els.input.value.trim() || !state.currentSession;
+}
+
+function updateConfirmationMode() {
+  const automatic = els.confirmationMode.value === "auto";
+  els.executionModeControl.classList.toggle("auto", automatic);
+  els.confirmationModeLabel.textContent = automatic ? "本次授权" : "逐项确认";
+  for (const option of els.confirmationModeOptions) {
+    const selected = option.dataset.confirmationMode === els.confirmationMode.value;
+    option.classList.toggle("selected", selected);
+    option.setAttribute("aria-checked", String(selected));
+  }
+}
+
+function setConfirmationModeMenu(open) {
+  const nextOpen = Boolean(open) && !state.running;
+  els.confirmationModeMenu.hidden = !nextOpen;
+  els.executionModeControl.setAttribute("aria-expanded", String(nextOpen));
+  if (nextOpen) {
+    requestAnimationFrame(() => els.confirmationModeOptions
+      .find((option) => option.getAttribute("aria-checked") === "true")?.focus());
+  }
+}
+
+function chooseConfirmationMode(mode) {
+  els.confirmationMode.value = mode === "auto" ? "auto" : "confirm";
+  updateConfirmationMode();
+  setConfirmationModeMenu(false);
+  els.executionModeControl.focus();
 }
 
 function resizeInput() {
@@ -826,6 +900,29 @@ els.form.addEventListener("submit", (event) => {
   submitText(els.input.value);
 });
 els.input.addEventListener("input", resizeInput);
+els.executionModeControl.addEventListener("click", () => setConfirmationModeMenu(els.confirmationModeMenu.hidden));
+els.confirmationModeMenu.addEventListener("click", (event) => {
+  const option = event.target.closest("[data-confirmation-mode]");
+  if (option) chooseConfirmationMode(option.dataset.confirmationMode);
+});
+els.confirmationModeMenu.addEventListener("keydown", (event) => {
+  if (event.key === "Escape") {
+    event.preventDefault();
+    setConfirmationModeMenu(false);
+    els.executionModeControl.focus();
+    return;
+  }
+  if (!["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) return;
+  event.preventDefault();
+  const current = els.confirmationModeOptions.indexOf(document.activeElement);
+  const next = event.key === "Home" ? 0
+    : event.key === "End" ? els.confirmationModeOptions.length - 1
+      : (current + (event.key === "ArrowDown" ? 1 : -1) + els.confirmationModeOptions.length) % els.confirmationModeOptions.length;
+  els.confirmationModeOptions[next].focus();
+});
+document.addEventListener("click", (event) => {
+  if (!event.target.closest(".composer-options")) setConfirmationModeMenu(false);
+});
 els.input.addEventListener("keydown", (event) => {
   if (event.key === "Enter" && !event.shiftKey && !event.isComposing) {
     event.preventDefault();
