@@ -10,14 +10,20 @@ import (
 	"io/fs"
 	"log"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
+	"github.com/glebarez/sqlite"
 	"github.com/gorilla/mux"
 	"google.golang.org/adk/v2/cmd/launcher"
 	"google.golang.org/adk/v2/server/adkrest"
 	"google.golang.org/adk/v2/session"
+	"google.golang.org/adk/v2/session/database"
 	"google.golang.org/adk/v2/telemetry"
+	"gorm.io/gorm"
+	gormlogger "gorm.io/gorm/logger"
 )
 
 //go:embed static/*
@@ -30,6 +36,7 @@ type config struct {
 	shutdownTimeout time.Duration
 	sseWriteTimeout time.Duration
 	traceCapacity   int
+	sessionDB       string
 }
 
 type webLauncher struct {
@@ -47,7 +54,16 @@ func NewLauncher() launcher.SubLauncher {
 	flags.DurationVar(&cfg.shutdownTimeout, "shutdown-timeout", 15*time.Second, "Graceful shutdown timeout")
 	flags.DurationVar(&cfg.sseWriteTimeout, "sse-write-timeout", 120*time.Second, "Maximum duration of one streamed agent run")
 	flags.IntVar(&cfg.traceCapacity, "trace-capacity", 10000, "Maximum number of in-memory ADK traces")
+	flags.StringVar(&cfg.sessionDB, "session-db", defaultSessionDB(), "SQLite file for persistent chat sessions; empty uses memory only")
 	return &webLauncher{flags: flags, config: cfg}
+}
+
+func defaultSessionDB() string {
+	home, err := os.UserHomeDir()
+	if err != nil || home == "" {
+		return filepath.Join(".adk", "sessions.db")
+	}
+	return filepath.Join(home, ".adk", "sessions.db")
 }
 
 func (w *webLauncher) Keyword() string { return "web" }
@@ -60,6 +76,9 @@ func (w *webLauncher) Parse(args []string) ([]string, error) {
 }
 
 func (w *webLauncher) Run(ctx context.Context, cfg *launcher.Config) error {
+	if err := configureSessionService(cfg, w.config.sessionDB); err != nil {
+		return err
+	}
 	handler, err := newHandler(cfg, w.config)
 	if err != nil {
 		return err
@@ -87,6 +106,11 @@ func (w *webLauncher) Run(ctx context.Context, cfg *launcher.Config) error {
 
 	log.Printf("Web workbench: http://localhost:%d", w.config.port)
 	log.Printf("ADK REST API: http://localhost:%d/api", w.config.port)
+	if w.config.sessionDB == "" {
+		log.Printf("Session storage: memory only")
+	} else {
+		log.Printf("Session storage: %s", filepath.Clean(w.config.sessionDB))
+	}
 
 	select {
 	case <-ctx.Done():
@@ -102,6 +126,45 @@ func (w *webLauncher) Run(ctx context.Context, cfg *launcher.Config) error {
 		}
 		return errors.Join(fmt.Errorf("web server failed: %w", err), telemetryErr)
 	}
+}
+
+func configureSessionService(cfg *launcher.Config, dbPath string) error {
+	if cfg.SessionService != nil {
+		return nil
+	}
+	if dbPath == "" {
+		cfg.SessionService = session.InMemoryService()
+		return nil
+	}
+
+	dbPath = filepath.Clean(dbPath)
+	if err := os.MkdirAll(filepath.Dir(dbPath), 0o700); err != nil {
+		return fmt.Errorf("create session database directory: %w", err)
+	}
+	file, err := os.OpenFile(dbPath, os.O_CREATE|os.O_RDWR, 0o600)
+	if err != nil {
+		return fmt.Errorf("create session database: %w", err)
+	}
+	if err := file.Close(); err != nil {
+		return fmt.Errorf("close session database file: %w", err)
+	}
+
+	service, err := database.NewSessionService(sqlite.Open(dbPath), &gorm.Config{
+		PrepareStmt: true,
+		Logger: gormlogger.New(log.New(os.Stderr, "", log.LstdFlags), gormlogger.Config{
+			SlowThreshold:             200 * time.Millisecond,
+			LogLevel:                  gormlogger.Warn,
+			IgnoreRecordNotFoundError: true,
+		}),
+	})
+	if err != nil {
+		return fmt.Errorf("open session database: %w", err)
+	}
+	if err := database.AutoMigrate(service); err != nil {
+		return fmt.Errorf("migrate session database: %w", err)
+	}
+	cfg.SessionService = service
+	return nil
 }
 
 func (w *webLauncher) CommandLineSyntax() string {

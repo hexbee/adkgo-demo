@@ -4,14 +4,74 @@ import (
 	"iter"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
 	"google.golang.org/adk/v2/agent"
 	"google.golang.org/adk/v2/cmd/launcher"
+	"google.golang.org/adk/v2/model"
 	"google.golang.org/adk/v2/session"
+	"google.golang.org/genai"
 )
+
+func TestConfigureSessionServicePersistsSessions(t *testing.T) {
+	ctx := t.Context()
+	dbPath := filepath.Join(t.TempDir(), "sessions.db")
+	first := &launcher.Config{}
+	if err := configureSessionService(first, dbPath); err != nil {
+		t.Fatalf("configure first session service: %v", err)
+	}
+	created, err := first.SessionService.Create(ctx, &session.CreateRequest{
+		AppName: "test_agent", UserID: "local-user", SessionID: "session-1",
+	})
+	if err != nil {
+		t.Fatalf("create session: %v", err)
+	}
+	if created.Session.ID() != "session-1" {
+		t.Fatalf("created session ID = %q, want session-1", created.Session.ID())
+	}
+	event := &session.Event{
+		ID:          "event-1",
+		Author:      "user",
+		LLMResponse: model.LLMResponse{Content: genai.NewContentFromText("persist me", genai.RoleUser)},
+	}
+	if err := first.SessionService.AppendEvent(ctx, created.Session, event); err != nil {
+		t.Fatalf("append chat event: %v", err)
+	}
+
+	second := &launcher.Config{}
+	if err := configureSessionService(second, dbPath); err != nil {
+		t.Fatalf("configure second session service: %v", err)
+	}
+	loaded, err := second.SessionService.Get(ctx, &session.GetRequest{
+		AppName: "test_agent", UserID: "local-user", SessionID: "session-1",
+	})
+	if err != nil {
+		t.Fatalf("load persisted session: %v", err)
+	}
+	if loaded.Session.ID() != "session-1" {
+		t.Fatalf("loaded session ID = %q, want session-1", loaded.Session.ID())
+	}
+	if loaded.Session.Events().Len() != 1 {
+		t.Fatalf("loaded event count = %d, want 1", loaded.Session.Events().Len())
+	}
+	content := loaded.Session.Events().At(0).Content
+	if content == nil || len(content.Parts) != 1 || content.Parts[0].Text != "persist me" {
+		t.Fatalf("loaded chat content = %#v, want persist me", content)
+	}
+}
+
+func TestConfigureSessionServiceCanUseMemoryOnly(t *testing.T) {
+	cfg := &launcher.Config{}
+	if err := configureSessionService(cfg, ""); err != nil {
+		t.Fatalf("configure in-memory session service: %v", err)
+	}
+	if cfg.SessionService == nil {
+		t.Fatal("session service is nil")
+	}
+}
 
 func testHandler(t *testing.T) http.Handler {
 	t.Helper()

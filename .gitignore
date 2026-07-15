@@ -30,6 +30,9 @@ go.work.sum
 # local MCP configuration (may contain credentials)
 .mcp.json
 
+# local ADK session database
+.adk/
+
 # Editor/IDE
 # .idea/
 # .vscode/
