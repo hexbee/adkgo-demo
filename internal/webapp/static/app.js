@@ -53,6 +53,9 @@ const state = {
   lastPrompt: "",
   toastTimer: null,
   mathRenderFrame: 0,
+  codeHighlightFrame: 0,
+  conversationScrollFrame: 0,
+  codeHighlighterConfigured: false,
   executionDisclosurePreferences: new Map(),
 };
 localStorage.setItem("adk-workbench-user", state.userId);
@@ -128,7 +131,7 @@ async function createSession() {
   state.timeline = [];
   state.executionDisclosurePreferences.clear();
   state.lastPrompt = "";
-  renderAll();
+  renderAll({ forceFollow: true });
   closeSidebar();
   requestAnimationFrame(() => els.input.focus());
 }
@@ -140,7 +143,7 @@ async function openSession(sessionId) {
   state.messages = messagesFromEvents(state.currentSession.events || []);
   state.timeline = [];
   state.executionDisclosurePreferences.clear();
-  renderAll();
+  renderAll({ forceFollow: true });
   closeSidebar();
 }
 
@@ -181,9 +184,9 @@ function newMessage(role, text = "", id = crypto.randomUUID()) {
   };
 }
 
-function renderAll() {
+function renderAll({ forceFollow = false } = {}) {
   renderSessions();
-  renderMessages();
+  renderMessages({ forceFollow });
   renderInspector();
   updateTaskTitle();
   updateComposer();
@@ -217,7 +220,8 @@ function updateTaskTitle() {
   els.taskTitle.textContent = state.currentSession ? sessionTitle(state.currentSession) : "新任务";
 }
 
-function renderMessages() {
+function renderMessages({ forceFollow = false } = {}) {
+  const followOutput = forceFollow || state.conversationScrollFrame !== 0 || isConversationNearBottom();
   const hasMessages = state.messages.length > 0;
   const openDisclosures = new Set([...els.messageList.querySelectorAll("details:not(.execution-group)[open][data-disclosure-id]")]
     .map((detail) => detail.dataset.disclosureId));
@@ -232,6 +236,8 @@ function renderMessages() {
     if (openDisclosures.has(detail.dataset.disclosureId)) detail.open = true;
   }
   scheduleMathRender();
+  scheduleCodeHighlight();
+  scheduleConversationFollow(followOutput);
 }
 
 function renderMessage(message) {
@@ -397,8 +403,7 @@ async function submitText(text) {
   els.input.value = "";
   resizeInput();
   updateTaskTitle();
-  renderMessages();
-  scrollToBottom();
+  renderMessages({ forceFollow: true });
   addTimeline("message", "任务已提交", truncate(prompt, 100));
   await runAgent({ role: "user", parts: [{ text: prompt }] }, assistant);
 }
@@ -468,7 +473,6 @@ async function runAgent(content, assistant, functionCallEventId = "") {
     state.controller = null;
     setRunning(false);
     renderMessages();
-    scrollToBottom();
     try {
       await loadSessions();
       const refreshed = state.sessions.find((session) => session.id === state.currentSession?.id);
@@ -544,7 +548,6 @@ function processEvent(event, assistant, options = {}) {
   if (!event.partial && visible && record) addTimeline("message", "模型输出", truncate(visible, 90));
   if (render) {
     renderMessages();
-    scrollToBottom();
   }
 }
 
@@ -656,7 +659,6 @@ function setRunning(running) {
   for (const message of state.messages) {
     if (!running && message.streaming) message.streaming = false;
   }
-  if (!running) renderMessages();
   updateComposer();
   renderInspector();
 }
@@ -712,9 +714,18 @@ function resizeInput() {
   updateComposer();
 }
 
-function scrollToBottom() {
-  requestAnimationFrame(() => {
-    els.conversation.scrollTop = els.conversation.scrollHeight;
+function isConversationNearBottom() {
+  const remaining = els.conversation.scrollHeight - els.conversation.clientHeight - els.conversation.scrollTop;
+  return remaining <= 96;
+}
+
+function scheduleConversationFollow(followOutput) {
+  window.cancelAnimationFrame(state.conversationScrollFrame);
+  state.conversationScrollFrame = 0;
+  if (!followOutput) return;
+  state.conversationScrollFrame = window.requestAnimationFrame(() => {
+    state.conversationScrollFrame = 0;
+    els.conversation.scrollTop = Math.max(0, els.conversation.scrollHeight - els.conversation.clientHeight);
   });
 }
 
@@ -759,44 +770,118 @@ async function deleteSession(sessionId) {
 }
 
 function renderMarkdown(text) {
-  const segments = String(text).split(/```(?:[a-zA-Z0-9_-]+)?\n([\s\S]*?)```/g);
-  return segments.map((segment, index) => {
-    if (index % 2 === 1) return `<pre><code>${escapeHTML(segment.replace(/\n$/, ""))}</code></pre>`;
-    const lines = segment.split("\n");
-    let html = "";
-    let listOpen = false;
-    for (let lineIndex = 0; lineIndex < lines.length; lineIndex += 1) {
-      const line = lines[lineIndex];
-      const trimmed = line.trim();
-      const mathBlock = renderMarkdownMathBlock(lines, lineIndex);
-      if (mathBlock) {
-        if (listOpen) { html += "</ul>"; listOpen = false; }
-        html += mathBlock.html;
-        lineIndex = mathBlock.nextIndex - 1;
-        continue;
+  return parseMarkdownSegments(text).map((segment) => segment.type === "code"
+    ? renderCodeBlock(segment)
+    : renderMarkdownText(segment.text)).join("");
+}
+
+function parseMarkdownSegments(text) {
+  const lines = String(text).replace(/\r\n?/g, "\n").split("\n");
+  const segments = [];
+  let markdownLines = [];
+  let codeBlock = null;
+  const flushMarkdown = () => {
+    if (!markdownLines.length) return;
+    segments.push({ type: "markdown", text: markdownLines.join("\n") });
+    markdownLines = [];
+  };
+
+  for (const line of lines) {
+    if (codeBlock) {
+      if (/^\s*```\s*$/.test(line)) {
+        segments.push({ type: "code", language: codeBlock.language, text: codeBlock.lines.join("\n"), unclosed: false });
+        codeBlock = null;
+      } else {
+        codeBlock.lines.push(line);
       }
-      const table = renderMarkdownTable(lines, lineIndex);
-      if (table) {
-        if (listOpen) { html += "</ul>"; listOpen = false; }
-        html += table.html;
-        lineIndex = table.nextIndex - 1;
-        continue;
-      }
-      const listMatch = trimmed.match(/^[-*]\s+(.+)/);
-      if (listMatch) {
-        if (!listOpen) { html += "<ul>"; listOpen = true; }
-        html += `<li>${inlineMarkdown(listMatch[1])}</li>`;
-        continue;
-      }
-      if (listOpen) { html += "</ul>"; listOpen = false; }
-      if (!trimmed) continue;
-      const heading = trimmed.match(/^#{1,3}\s+(.+)/);
-      if (heading) html += `<h3>${inlineMarkdown(heading[1])}</h3>`;
-      else html += `<p>${inlineMarkdown(trimmed)}</p>`;
+      continue;
     }
-    if (listOpen) html += "</ul>";
-    return html;
-  }).join("");
+    const opening = line.match(/^\s*```(.*)$/);
+    if (opening) {
+      flushMarkdown();
+      const info = opening[1].trim();
+      codeBlock = { language: info ? info.split(/\s+/, 1)[0] : "", lines: [] };
+    } else {
+      markdownLines.push(line);
+    }
+  }
+  if (codeBlock) {
+    segments.push({ type: "code", language: codeBlock.language, text: codeBlock.lines.join("\n"), unclosed: true });
+  } else {
+    flushMarkdown();
+  }
+  return segments;
+}
+
+function renderCodeBlock(segment) {
+  const language = codeLanguageInfo(segment.language);
+  return `<div class="message-code-block${segment.unclosed ? " streaming" : ""}">
+    <div class="message-code-heading"><span>${escapeHTML(language.label)}</span></div>
+    <pre><code class="language-${escapeAttr(language.id)}" data-code-language="${escapeAttr(language.id)}">${escapeHTML(segment.text)}</code></pre>
+  </div>`;
+}
+
+function codeLanguageInfo(rawLanguage) {
+  const source = String(rawLanguage || "").trim().toLowerCase().replace(/^language-/, "");
+  const aliases = {
+    "": "plaintext", text: "plaintext", txt: "plaintext", none: "plaintext",
+    shell: "bash", sh: "bash", zsh: "bash", console: "bash", terminal: "bash",
+    golang: "go", "c++": "cpp", "c#": "csharp", cs: "csharp",
+    js: "javascript", jsx: "javascript", node: "javascript", nodejs: "javascript",
+    ts: "typescript", tsx: "typescript", py: "python", rb: "ruby", rs: "rust",
+    yml: "yaml", html: "xml", svg: "xml", docker: "dockerfile", md: "markdown",
+  };
+  const normalized = aliases[source] || source;
+  const supported = /^[a-z0-9_-]+$/.test(normalized)
+    && typeof window.hljs?.getLanguage === "function"
+    && window.hljs.getLanguage(normalized);
+  const id = supported ? normalized : "plaintext";
+  const labels = {
+    plaintext: "Plain text", bash: "Shell", c: "C", cpp: "C++", csharp: "C#", css: "CSS",
+    diff: "Diff", dockerfile: "Dockerfile", go: "Go", graphql: "GraphQL", ini: "INI",
+    java: "Java", javascript: "JavaScript", json: "JSON", kotlin: "Kotlin", lua: "Lua",
+    makefile: "Makefile", markdown: "Markdown", objectivec: "Objective-C", perl: "Perl",
+    php: "PHP", python: "Python", ruby: "Ruby", rust: "Rust", scss: "SCSS", sql: "SQL",
+    swift: "Swift", typescript: "TypeScript", vbnet: "VB.NET", xml: "HTML / XML", yaml: "YAML",
+  };
+  return { id, label: labels[normalized] || (source ? truncate(source, 24) : "Plain text") };
+}
+
+function renderMarkdownText(text) {
+  const lines = text.split("\n");
+  let html = "";
+  let listOpen = false;
+  for (let lineIndex = 0; lineIndex < lines.length; lineIndex += 1) {
+    const line = lines[lineIndex];
+    const trimmed = line.trim();
+    const mathBlock = renderMarkdownMathBlock(lines, lineIndex);
+    if (mathBlock) {
+      if (listOpen) { html += "</ul>"; listOpen = false; }
+      html += mathBlock.html;
+      lineIndex = mathBlock.nextIndex - 1;
+      continue;
+    }
+    const table = renderMarkdownTable(lines, lineIndex);
+    if (table) {
+      if (listOpen) { html += "</ul>"; listOpen = false; }
+      html += table.html;
+      lineIndex = table.nextIndex - 1;
+      continue;
+    }
+    const listMatch = trimmed.match(/^[-*]\s+(.+)/);
+    if (listMatch) {
+      if (!listOpen) { html += "<ul>"; listOpen = true; }
+      html += `<li>${inlineMarkdown(listMatch[1])}</li>`;
+      continue;
+    }
+    if (listOpen) { html += "</ul>"; listOpen = false; }
+    if (!trimmed) continue;
+    const heading = trimmed.match(/^#{1,3}\s+(.+)/);
+    if (heading) html += `<h3>${inlineMarkdown(heading[1])}</h3>`;
+    else html += `<p>${inlineMarkdown(trimmed)}</p>`;
+  }
+  if (listOpen) html += "</ul>";
+  return html;
 }
 
 function renderMarkdownMathBlock(lines, startIndex) {
@@ -918,6 +1003,33 @@ function scheduleMathRender() {
       });
     } catch (error) {
       console.warn("Math rendering failed", error);
+    }
+  });
+}
+
+function scheduleCodeHighlight() {
+  window.cancelAnimationFrame(state.codeHighlightFrame);
+  state.codeHighlightFrame = window.requestAnimationFrame(() => {
+    state.codeHighlightFrame = 0;
+    if (typeof window.hljs?.highlightElement !== "function" || !els.messageList.isConnected) return;
+    if (!state.codeHighlighterConfigured) {
+      window.hljs.configure({ throwUnescapedHTML: true });
+      state.codeHighlighterConfigured = true;
+    }
+    for (const code of els.messageList.querySelectorAll(".message-code-block code:not([data-highlighted])")) {
+      const language = code.dataset.codeLanguage;
+      if (language === "plaintext" || !window.hljs.getLanguage(language)) {
+        code.classList.add("hljs");
+        code.dataset.highlighted = "yes";
+        continue;
+      }
+      try {
+        window.hljs.highlightElement(code);
+      } catch (error) {
+        code.classList.add("hljs");
+        code.dataset.highlighted = "error";
+        console.warn("Code highlighting failed", error);
+      }
     }
   });
 }

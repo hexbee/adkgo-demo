@@ -54,6 +54,11 @@ func TestHandlerServesWorkbenchWithSecurityHeaders(t *testing.T) {
 			t.Fatalf("web app body missing KaTeX asset %q", marker)
 		}
 	}
+	for _, marker := range []string{"/assets/vendor/highlightjs/styles/github-dark-dimmed.min.css", "/assets/vendor/highlightjs/highlight.min.js"} {
+		if !strings.Contains(recorder.Body.String(), marker) {
+			t.Fatalf("web app body missing Highlight.js asset %q", marker)
+		}
+	}
 	if got := recorder.Header().Get("Content-Security-Policy"); !strings.Contains(got, "default-src 'self'") {
 		t.Fatalf("Content-Security-Policy = %q", got)
 	}
@@ -101,12 +106,42 @@ func TestHandlerServesEmbeddedAssets(t *testing.T) {
 		"执行结果",
 		"renderMarkdownTable",
 		"renderMarkdownMathBlock",
+		"parseMarkdownSegments",
+		"codeLanguageInfo",
+		"scheduleCodeHighlight",
+		"isConversationNearBottom",
+		"scheduleConversationFollow",
+		"state.conversationScrollFrame !== 0",
+		"renderMessages({ forceFollow: true })",
+		`"c++": "cpp"`,
+		`window.hljs.highlightElement(code)`,
 		"scheduleMathRender",
 		`{ left: "\\[", right: "\\]", display: true }`,
 		"message-table-scroll",
 	} {
 		if !strings.Contains(recorder.Body.String(), marker) {
 			t.Fatalf("app.js missing tool disclosure marker %q", marker)
+		}
+	}
+}
+
+func TestHandlerServesNestedHighlightAssets(t *testing.T) {
+	tests := []struct {
+		path   string
+		marker string
+	}{
+		{path: "/assets/vendor/highlightjs/highlight.min.js", marker: "highlightElement"},
+		{path: "/assets/vendor/highlightjs/styles/github-dark-dimmed.min.css", marker: ".hljs-keyword"},
+	}
+	for _, test := range tests {
+		recorder := httptest.NewRecorder()
+		testHandler(t).ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, test.path, nil))
+		if recorder.Code != http.StatusOK {
+			t.Errorf("GET %s status = %d", test.path, recorder.Code)
+			continue
+		}
+		if !strings.Contains(recorder.Body.String(), test.marker) {
+			t.Errorf("GET %s body missing %q", test.path, test.marker)
 		}
 	}
 }
@@ -186,6 +221,18 @@ func TestMathStylesAreEmbedded(t *testing.T) {
 	}
 }
 
+func TestCodeHighlightStylesAreEmbedded(t *testing.T) {
+	styles, err := staticFiles.ReadFile("static/styles.css")
+	if err != nil {
+		t.Fatalf("read embedded styles: %v", err)
+	}
+	for _, rule := range []string{".message-code-block {", ".message-code-heading {", ".message-code-block pre code.hljs", ".message-code-block.streaming"} {
+		if !strings.Contains(string(styles), rule) {
+			t.Fatalf("styles.css missing code highlight rule %q", rule)
+		}
+	}
+}
+
 func TestLayoutPinsConversationAndComposerToDedicatedGridRows(t *testing.T) {
 	styles, err := staticFiles.ReadFile("static/styles.css")
 	if err != nil {
@@ -197,6 +244,8 @@ func TestLayoutPinsConversationAndComposerToDedicatedGridRows(t *testing.T) {
 		".composer-wrap {\n  position: relative;\n  grid-row: 4;",
 		".workspace {\n  display: grid;",
 		"overflow: hidden;",
+		"overflow-anchor: none;",
+		"scroll-behavior: auto;",
 	} {
 		if !strings.Contains(css, rule) {
 			t.Fatalf("styles.css missing layout regression rule %q", rule)

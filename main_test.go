@@ -19,6 +19,14 @@ func TestAgentInstructionIncludesMathFormattingContract(t *testing.T) {
 	}
 }
 
+func TestAgentInstructionIncludesCodeFenceContract(t *testing.T) {
+	for _, want := range []string{"multiline code", "fenced code blocks", "canonical language identifier", "bash", "cpp", "plaintext"} {
+		if !strings.Contains(agentInstruction, want) {
+			t.Errorf("agent instruction missing %q", want)
+		}
+	}
+}
+
 type fakeModel struct{}
 
 func (fakeModel) Name() string { return "fake-model" }

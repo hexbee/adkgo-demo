@@ -372,7 +372,8 @@ svg {
   min-height: 0;
   padding: 34px clamp(24px, 5vw, 70px) 22px;
   overflow-y: auto;
-  scroll-behavior: smooth;
+  overflow-anchor: none;
+  scroll-behavior: auto;
   overscroll-behavior: contain;
 }
 
@@ -441,6 +442,12 @@ svg {
 .message-content code { padding: 2px 5px; border-radius: 4px; background: var(--surface-muted); font: 12px/1.5 var(--mono); }
 .message-content pre { margin: 14px 0; padding: 14px 16px; border: 1px solid #30413b; border-radius: var(--radius-md); background: #1e2925; color: #f0eee8; overflow-x: auto; }
 .message-content pre code { padding: 0; background: none; color: inherit; }
+.message-code-block { margin: 14px 0; border: 1px solid #30413b; border-radius: var(--radius-md); background: #1e2925; overflow: hidden; }
+.message-code-heading { display: flex; min-height: 30px; align-items: center; padding: 0 12px; border-bottom: 1px solid rgb(255 255 255 / 8%); background: #26342f; }
+.message-code-heading span { color: #aebbb5; font: 9px/1 var(--mono); }
+.message-code-block pre { margin: 0; border: 0; border-radius: 0; }
+.message-code-block pre code.hljs { display: block; padding: 0; background: transparent; }
+.message-code-block.streaming .message-code-heading::after { content: "正在生成"; margin-left: auto; color: #89968f; font-size: 9px; }
 .message-math-block, .message-content .katex-display { max-width: 100%; overflow-x: auto; overflow-y: hidden; }
 .message-math-block { margin: 16px 0; padding: 2px 0 4px; }
 .message-math-block .katex-display { margin: 0; }
