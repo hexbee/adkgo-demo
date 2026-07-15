@@ -62,6 +62,18 @@ func buildAgent(llm model.LLM, commandTool tool.Tool, toolsets []tool.Toolset) (
 	})
 }
 
+func adapterModelConfigs(cfg config.Config) (openaiadapter.Config, openaiadapter.Config) {
+	conversation := openaiadapter.Config{
+		BaseURL: cfg.BaseURL, APIKey: cfg.APIKey, Model: cfg.ModelName,
+		ContextWindow: cfg.ContextWindow, MaxTokens: cfg.MaxTokens,
+		ThinkingMode: cfg.ThinkingMode, ReasoningEffort: cfg.ReasoningEffort,
+	}
+	title := conversation
+	title.ThinkingMode = "disabled"
+	title.ReasoningEffort = ""
+	return conversation, title
+}
+
 func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -72,13 +84,14 @@ func main() {
 	}
 	log.Printf("starting ADK demo: %s", cfg.SafeSummary())
 
-	adaptedModel, err := openaiadapter.New(openaiadapter.Config{
-		BaseURL: cfg.BaseURL, APIKey: cfg.APIKey, Model: cfg.ModelName,
-		ContextWindow: cfg.ContextWindow, MaxTokens: cfg.MaxTokens,
-		ThinkingMode: cfg.ThinkingMode, ReasoningEffort: cfg.ReasoningEffort,
-	})
+	modelConfig, titleModelConfig := adapterModelConfigs(cfg)
+	adaptedModel, err := openaiadapter.New(modelConfig)
 	if err != nil {
 		log.Fatalf("create model: %v", err)
+	}
+	titleModel, err := openaiadapter.New(titleModelConfig)
+	if err != nil {
+		log.Fatalf("create session title model: %v", err)
 	}
 	projectRoot, err := os.Getwd()
 	if err != nil {
@@ -123,7 +136,7 @@ func main() {
 		log.Fatalf("create agent: %v", err)
 	}
 	launcherConfig := &launcher.Config{AgentLoader: agent.NewSingleLoader(rootAgent)}
-	l := universal.NewLauncher(console.NewLauncher(), webapp.NewLauncher())
+	l := universal.NewLauncher(console.NewLauncher(), webapp.NewLauncher(titleModel))
 	if err := l.Execute(ctx, launcherConfig, os.Args[1:]); err != nil {
 		log.Fatalf("run failed: %v\n\n%s", err, l.CommandLineSyntax())
 	}

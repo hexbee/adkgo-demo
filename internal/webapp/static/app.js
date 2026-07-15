@@ -61,6 +61,7 @@ const state = {
   mermaidLoadPromise: null,
   mermaidRenderCache: new Map(),
   executionDisclosurePreferences: new Map(),
+  titleRequests: new Set(),
 };
 localStorage.setItem("adk-workbench-user", state.userId);
 
@@ -121,7 +122,16 @@ async function bootstrap() {
 
 async function loadSessions() {
   const path = `/apps/${encode(state.appName)}/users/${encode(state.userId)}/sessions`;
+  const localTitles = new Map(state.sessions
+    .filter((session) => session.localTitle)
+    .map((session) => [session.id, session.localTitle]));
+  if (state.currentSession?.localTitle) localTitles.set(state.currentSession.id, state.currentSession.localTitle);
   state.sessions = (await api(path)) || [];
+  for (const session of state.sessions) {
+    if (!persistentSessionTitle(session) && localTitles.has(session.id)) {
+      session.localTitle = localTitles.get(session.id);
+    }
+  }
   state.sessions.sort((a, b) => b.lastUpdateTime - a.lastUpdateTime);
   renderSessions();
 }
@@ -144,12 +154,19 @@ async function createSession() {
 async function openSession(sessionId) {
   if (state.running || !sessionId) return;
   const path = `/apps/${encode(state.appName)}/users/${encode(state.userId)}/sessions/${encode(sessionId)}`;
+  const summary = state.sessions.find((session) => session.id === sessionId);
   state.currentSession = await api(path);
+  if (summary?.localTitle && !persistentSessionTitle(state.currentSession)) {
+    state.currentSession.localTitle = summary.localTitle;
+  }
+  const index = state.sessions.findIndex((session) => session.id === sessionId);
+  if (index >= 0) state.sessions[index] = state.currentSession;
   state.messages = messagesFromEvents(state.currentSession.events || []);
   state.timeline = [];
   state.executionDisclosurePreferences.clear();
   renderAll({ forceFollow: true });
   closeSidebar();
+  ensureSessionTitle(sessionId).catch(() => {});
 }
 
 function messagesFromEvents(events) {
@@ -216,9 +233,53 @@ function renderSessions() {
 }
 
 function sessionTitle(session) {
+  const persisted = persistentSessionTitle(session);
+  if (persisted) return truncate(persisted, 34);
+  if (session?.localTitle) return truncate(session.localTitle.replace(/\s+/g, " "), 34);
   const userEvent = (session.events || []).find((event) => event.author === "user" && event.content?.parts?.some((part) => part.text));
   const title = userEvent?.content?.parts?.filter((part) => part.text && !part.thought).map((part) => part.text).join("").trim();
   return title ? truncate(title.replace(/\s+/g, " "), 34) : "新任务";
+}
+
+function persistentSessionTitle(session) {
+  const title = session?.state?.title;
+  return typeof title === "string" ? title.trim().replace(/\s+/g, " ") : "";
+}
+
+function sessionTitleSource(session) {
+  const source = session?.state?.title_source;
+  return typeof source === "string" ? source.trim() : "";
+}
+
+function hasFinalSessionTitle(session) {
+  return Boolean(persistentSessionTitle(session) && sessionTitleSource(session) === "model");
+}
+
+async function ensureSessionTitle(sessionId = state.currentSession?.id) {
+  if (!sessionId || state.titleRequests.has(sessionId)) return;
+  const target = state.sessions.find((session) => session.id === sessionId);
+  if (hasFinalSessionTitle(target) || (state.currentSession?.id === sessionId && hasFinalSessionTitle(state.currentSession))) return;
+  state.titleRequests.add(sessionId);
+  try {
+    const path = `/apps/${encode(state.appName)}/users/${encode(state.userId)}/sessions/${encode(sessionId)}/title`;
+    const result = await api(path, { method: "POST", body: "{}" });
+    const title = typeof result?.title === "string" ? result.title.trim() : "";
+    const source = typeof result?.source === "string" ? result.source.trim() : "";
+    if (!title) return;
+    for (const session of state.sessions) {
+      if (session.id !== sessionId) continue;
+      session.state = { ...(session.state || {}), title, title_source: source };
+      delete session.localTitle;
+    }
+    if (state.currentSession?.id === sessionId) {
+      state.currentSession.state = { ...(state.currentSession.state || {}), title, title_source: source };
+      delete state.currentSession.localTitle;
+    }
+    renderSessions();
+    updateTaskTitle();
+  } finally {
+    state.titleRequests.delete(sessionId);
+  }
 }
 
 function updateTaskTitle() {
@@ -448,9 +509,11 @@ async function submitText(text) {
   state.messages.push(user, assistant);
   state.currentSession.events = state.currentSession.events || [];
   state.currentSession.events.push({ author: "user", content: { parts: [{ text: prompt }] } });
+  if (!persistentSessionTitle(state.currentSession)) state.currentSession.localTitle = prompt;
   els.input.value = "";
   resizeInput();
   updateTaskTitle();
+  renderSessions();
   renderMessages({ forceFollow: true });
   addTimeline("message", "任务已提交", truncate(prompt, 100));
   await runAgent({ role: "user", parts: [{ text: prompt }] }, assistant);
@@ -522,9 +585,22 @@ async function runAgent(content, assistant, functionCallEventId = "") {
     setRunning(false);
     renderMessages();
     try {
+      await ensureSessionTitle();
+    } catch (_) {
+      // The first-question fallback remains visible; title generation must not affect the answer.
+    }
+    try {
       await loadSessions();
       const refreshed = state.sessions.find((session) => session.id === state.currentSession?.id);
-      if (refreshed) state.currentSession = refreshed;
+      if (refreshed) {
+        state.currentSession = {
+          ...state.currentSession,
+          ...refreshed,
+          events: state.currentSession.events || [],
+          localTitle: refreshed.localTitle || state.currentSession.localTitle,
+        };
+      }
+      renderSessions();
       updateTaskTitle();
     } catch (_) {
       showToast("结果已保留，但任务列表暂时无法刷新");

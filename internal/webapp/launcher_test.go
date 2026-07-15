@@ -1,6 +1,9 @@
 package webapp
 
 import (
+	"context"
+	"encoding/json"
+	"errors"
 	"iter"
 	"net/http"
 	"net/http/httptest"
@@ -9,12 +12,19 @@ import (
 	"testing"
 	"time"
 
+	"github.com/gorilla/mux"
 	"google.golang.org/adk/v2/agent"
 	"google.golang.org/adk/v2/cmd/launcher"
 	"google.golang.org/adk/v2/model"
 	"google.golang.org/adk/v2/session"
 	"google.golang.org/genai"
 )
+
+type titleGeneratorFunc func(context.Context, string, string) (string, error)
+
+func (f titleGeneratorFunc) Generate(ctx context.Context, question, answer string) (string, error) {
+	return f(ctx, question, answer)
+}
 
 func TestConfigureSessionServicePersistsSessions(t *testing.T) {
 	ctx := t.Context()
@@ -73,6 +83,174 @@ func TestConfigureSessionServiceCanUseMemoryOnly(t *testing.T) {
 	}
 }
 
+func TestSessionTitleEndpointGeneratesPersistsAndReusesTitle(t *testing.T) {
+	ctx := t.Context()
+	dbPath := filepath.Join(t.TempDir(), "sessions.db")
+	cfg := &launcher.Config{}
+	if err := configureSessionService(cfg, dbPath); err != nil {
+		t.Fatalf("configure session service: %v", err)
+	}
+	created, err := cfg.SessionService.Create(ctx, &session.CreateRequest{
+		AppName: "test_agent", UserID: "local-user", SessionID: "session-1",
+	})
+	if err != nil {
+		t.Fatalf("create session: %v", err)
+	}
+	updatedAt := created.Session.LastUpdateTime()
+	for _, event := range []*session.Event{
+		{
+			ID: "user-event", Author: "user", Timestamp: updatedAt.Add(time.Microsecond),
+			LLMResponse: model.LLMResponse{Content: genai.NewContentFromText("请显示 Node、Go 和 Python 的版本", genai.RoleUser)},
+		},
+		{
+			ID: "assistant-event", Author: "test_agent", Timestamp: updatedAt.Add(2 * time.Microsecond),
+			LLMResponse: model.LLMResponse{Content: genai.NewContentFromText("三个运行时版本已经检查完毕。", genai.RoleModel)},
+		},
+	} {
+		if err := cfg.SessionService.AppendEvent(ctx, created.Session, event); err != nil {
+			t.Fatalf("append event %s: %v", event.ID, err)
+		}
+	}
+
+	generateCalls := 0
+	generator := titleGeneratorFunc(func(_ context.Context, question, answer string) (string, error) {
+		generateCalls++
+		if question != "请显示 Node、Go 和 Python 的版本" || answer != "三个运行时版本已经检查完毕。" {
+			t.Fatalf("first exchange = (%q, %q)", question, answer)
+		}
+		return "运行时版本检查", nil
+	})
+	handler := sessionTitleHandler(cfg.SessionService, generator)
+
+	request := httptest.NewRequest(http.MethodPost, "/title", strings.NewReader("{}"))
+	request = mux.SetURLVars(request, map[string]string{
+		"app_name": "test_agent", "user_id": "local-user", "session_id": "session-1",
+	})
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("first title status = %d, body = %q", recorder.Code, recorder.Body.String())
+	}
+	var response map[string]string
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode title response: %v", err)
+	}
+	if response["title"] != "运行时版本检查" || response["source"] != sessionTitleSourceModel {
+		t.Fatalf("title response = %#v", response)
+	}
+
+	reopened := &launcher.Config{}
+	if err := configureSessionService(reopened, dbPath); err != nil {
+		t.Fatalf("reopen session service: %v", err)
+	}
+	listed, err := reopened.SessionService.List(ctx, &session.ListRequest{AppName: "test_agent", UserID: "local-user"})
+	if err != nil || len(listed.Sessions) != 1 {
+		t.Fatalf("list titled session = %#v, %v", listed, err)
+	}
+	if got := titleFromState(listed.Sessions[0]); got != "运行时版本检查" {
+		t.Fatalf("persisted title = %q", got)
+	}
+	if got := titleSourceFromState(listed.Sessions[0]); got != sessionTitleSourceModel {
+		t.Fatalf("persisted title source = %q", got)
+	}
+	if listed.Sessions[0].Events().Len() != 0 {
+		t.Fatalf("listed session event count = %d, want 0", listed.Sessions[0].Events().Len())
+	}
+
+	request = httptest.NewRequest(http.MethodPost, "/title", strings.NewReader("{}"))
+	request = mux.SetURLVars(request, map[string]string{
+		"app_name": "test_agent", "user_id": "local-user", "session_id": "session-1",
+	})
+	recorder = httptest.NewRecorder()
+	sessionTitleHandler(reopened.SessionService, generator).ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK || generateCalls != 1 {
+		t.Fatalf("reused title status = %d, generation calls = %d", recorder.Code, generateCalls)
+	}
+}
+
+func TestSessionTitleEndpointRetriesFallbackAndMigratesLegacyState(t *testing.T) {
+	ctx := t.Context()
+	service := session.InMemoryService()
+	created, err := service.Create(ctx, &session.CreateRequest{
+		AppName: "test_agent", UserID: "local-user", SessionID: "legacy-session",
+	})
+	if err != nil {
+		t.Fatalf("create session: %v", err)
+	}
+	updatedAt := created.Session.LastUpdateTime()
+	question := "请检查运行时版本。"
+	for _, event := range []*session.Event{
+		{
+			ID: "legacy-user", Author: "user", Timestamp: updatedAt.Add(time.Microsecond),
+			LLMResponse: model.LLMResponse{Content: genai.NewContentFromText(question, genai.RoleUser)},
+		},
+		{
+			ID: "legacy-assistant", Author: "test_agent", Timestamp: updatedAt.Add(2 * time.Microsecond),
+			LLMResponse: model.LLMResponse{Content: genai.NewContentFromText("检查已经完成。", genai.RoleModel)},
+		},
+		{
+			ID: "legacy-title", Author: "session_title", Timestamp: updatedAt.Add(3 * time.Microsecond),
+			Actions: session.EventActions{StateDelta: map[string]any{
+				sessionTitleStateKey: fallbackSessionTitle(question),
+			}},
+		},
+	} {
+		if err := service.AppendEvent(ctx, created.Session, event); err != nil {
+			t.Fatalf("append event %s: %v", event.ID, err)
+		}
+	}
+
+	call := func(generator titleGenerator) map[string]string {
+		t.Helper()
+		request := httptest.NewRequest(http.MethodPost, "/title", strings.NewReader("{}"))
+		request = mux.SetURLVars(request, map[string]string{
+			"app_name": "test_agent", "user_id": "local-user", "session_id": "legacy-session",
+		})
+		recorder := httptest.NewRecorder()
+		sessionTitleHandler(service, generator).ServeHTTP(recorder, request)
+		if recorder.Code != http.StatusOK {
+			t.Fatalf("title status = %d, body = %q", recorder.Code, recorder.Body.String())
+		}
+		var response map[string]string
+		if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+			t.Fatalf("decode title response: %v", err)
+		}
+		return response
+	}
+
+	failed := call(titleGeneratorFunc(func(context.Context, string, string) (string, error) {
+		return "", errors.New("temporary title failure")
+	}))
+	if failed["title"] != fallbackSessionTitle(question) || failed["source"] != sessionTitleSourceFallback {
+		t.Fatalf("fallback response = %#v", failed)
+	}
+
+	retried := call(titleGeneratorFunc(func(context.Context, string, string) (string, error) {
+		return "运行时版本检查", nil
+	}))
+	if retried["title"] != "运行时版本检查" || retried["source"] != sessionTitleSourceModel {
+		t.Fatalf("retried response = %#v", retried)
+	}
+	loaded, err := service.Get(ctx, &session.GetRequest{
+		AppName: "test_agent", UserID: "local-user", SessionID: "legacy-session",
+	})
+	if err != nil {
+		t.Fatalf("get retried session: %v", err)
+	}
+	if titleFromState(loaded.Session) != "运行时版本检查" || titleSourceFromState(loaded.Session) != sessionTitleSourceModel {
+		t.Fatalf("retried state title = %q, source = %q", titleFromState(loaded.Session), titleSourceFromState(loaded.Session))
+	}
+}
+
+func TestNormalizeSessionTitle(t *testing.T) {
+	if got := normalizeSessionTitle("标题： “Node、Go 与 Python 版本检查。”\n额外说明"); got != "Node、Go 与 Python 版本检查" {
+		t.Fatalf("normalized title = %q", got)
+	}
+	if got := normalizeSessionTitle(strings.Repeat("会", maxSessionTitleRunes+5)); len([]rune(got)) != maxSessionTitleRunes {
+		t.Fatalf("normalized title rune count = %d", len([]rune(got)))
+	}
+}
+
 func testHandler(t *testing.T) http.Handler {
 	t.Helper()
 	testAgent, err := agent.New(agent.Config{
@@ -87,7 +265,7 @@ func testHandler(t *testing.T) http.Handler {
 	}
 	handler, err := newHandler(&launcher.Config{
 		AgentLoader: agent.NewSingleLoader(testAgent),
-	}, &config{sseWriteTimeout: time.Second, traceCapacity: 10})
+	}, &config{sseWriteTimeout: time.Second, traceCapacity: 10}, nil)
 	if err != nil {
 		t.Fatalf("newHandler: %v", err)
 	}
@@ -157,6 +335,13 @@ func TestHandlerServesEmbeddedAssets(t *testing.T) {
 		"updateThoughtItem",
 		"execution-timeline",
 		"executionDisclosurePreferences",
+		"persistentSessionTitle",
+		"sessionTitleSource",
+		"hasFinalSessionTitle",
+		"title_source",
+		"ensureSessionTitle",
+		"session.localTitle",
+		"/title",
 		`preference === "open" || (needsAttention && preference !== "closed")`,
 		"思考中",
 		"执行过程",
@@ -382,7 +567,7 @@ func TestLayoutPinsConversationAndComposerToDedicatedGridRows(t *testing.T) {
 }
 
 func TestLauncherParsesWebFlags(t *testing.T) {
-	launcher := NewLauncher()
+	launcher := NewLauncher(nil)
 	rest, err := launcher.Parse([]string{"--port", "9000", "extra"})
 	if err != nil {
 		t.Fatalf("Parse: %v", err)

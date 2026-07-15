@@ -36,6 +36,8 @@ go run . web --session-db /path/to/sessions.db
 go run . web --session-db=
 ```
 
+首轮回答完成后，Workbench 会使用禁用 thinking 的独立请求，根据第一组问答生成简短的会话标题，并保存到 ADK session state；侧边栏与顶部标题读取同一份状态。标题生成失败时会自动使用首条问题的摘要，不影响正常回答，并在以后重新打开会话时重试生成。
+
 可以尝试：
 
 ```text
