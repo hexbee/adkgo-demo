@@ -770,9 +770,45 @@ async function deleteSession(sessionId) {
 }
 
 function renderMarkdown(text) {
-  return parseMarkdownSegments(text).map((segment) => segment.type === "code"
+  return compactRepeatedMermaidSegments(parseMarkdownSegments(text)).map((segment) => segment.type === "code"
     ? renderCodeBlock(segment)
     : renderMarkdownText(segment.text)).join("");
+}
+
+function compactRepeatedMermaidSegments(segments) {
+  const compacted = [];
+  for (let index = 0; index < segments.length; index += 1) {
+    const current = segments[index];
+    const separator = segments[index + 1];
+    const repeated = segments[index + 2];
+    if (current.type === "code"
+      && String(current.language).toLowerCase() === "mermaid"
+      && separator?.type === "markdown"
+      && isRepeatedCodeSeparator(separator.text)
+      && repeated?.type === "code"
+      && ["", "plaintext", "text", "markdown", "md", "mermaid"].includes(String(repeated.language).toLowerCase())
+      && repeatedMermaidCodeMatches(current, repeated)) {
+      compacted.push(current);
+      index += 2;
+      continue;
+    }
+    compacted.push(current);
+  }
+  return compacted;
+}
+
+function isRepeatedCodeSeparator(text) {
+  return /^\s*(?:(?:\*\*|__)?(?:代码|源码|源代码)\s*[：:]?(?:\*\*|__)?)?\s*$/u.test(String(text));
+}
+
+function repeatedMermaidCodeMatches(original, repeated) {
+  const source = normalizedCode(original.text);
+  const candidate = normalizedCode(repeated.text);
+  return source === candidate || (repeated.unclosed && source.startsWith(candidate));
+}
+
+function normalizedCode(text) {
+  return String(text).replace(/\r\n?/g, "\n").trim();
 }
 
 function parseMarkdownSegments(text) {

@@ -20,9 +20,17 @@ func TestAgentInstructionIncludesMathFormattingContract(t *testing.T) {
 }
 
 func TestAgentInstructionIncludesCodeFenceContract(t *testing.T) {
-	for _, want := range []string{"multiline code", "fenced code blocks", "canonical language identifier", "bash", "cpp", "plaintext"} {
+	for _, want := range []string{"multiline code", "fenced code blocks", "canonical language identifier", "bash", "cpp", "mermaid", "plaintext"} {
 		if !strings.Contains(agentInstruction, want) {
 			t.Errorf("agent instruction missing %q", want)
+		}
+	}
+}
+
+func TestAgentInstructionAvoidsDuplicateMermaidSource(t *testing.T) {
+	for _, want := range []string{"exactly one fenced mermaid block", "Do not repeat the same Mermaid source", "canonical source for both rendering and copying"} {
+		if !strings.Contains(agentInstruction, want) {
+			t.Errorf("agent instruction missing Mermaid output contract %q", want)
 		}
 	}
 }
