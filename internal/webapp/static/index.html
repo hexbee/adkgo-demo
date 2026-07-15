@@ -1,0 +1,170 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <meta name="theme-color" content="#f3f0e8">
+  <title>Agent Workbench</title>
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/assets/styles.css">
+</head>
+<body>
+  <a class="skip-link" href="#composer-input">跳到输入框</a>
+  <div class="app-shell" id="app-shell">
+    <aside class="sidebar" id="sidebar" aria-label="会话导航">
+      <div class="brand-row">
+        <a class="brand" href="/" aria-label="Agent Workbench 首页">
+          <svg class="brand-mark" viewBox="0 0 36 36" aria-hidden="true">
+            <path d="M8 24.5 18 6l10 18.5-10 5.5L8 24.5Z"/>
+            <path d="m12.4 22.4 5.6-10 5.6 10-5.6 3-5.6-3Z"/>
+          </svg>
+          <span><strong>Workbench</strong><small>ADK agent console</small></span>
+        </a>
+        <button class="icon-button mobile-only" id="close-sidebar" type="button" aria-label="关闭会话导航">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m7 7 10 10M17 7 7 17"/></svg>
+        </button>
+      </div>
+
+      <button class="new-session-button" id="new-session" type="button">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
+        新建任务
+        <kbd>⌘ K</kbd>
+      </button>
+
+      <div class="sidebar-section-heading">
+        <span>最近任务</span>
+        <span class="session-count" id="session-count">0</span>
+      </div>
+      <nav class="session-list" id="session-list" aria-label="最近任务">
+        <div class="session-skeleton" aria-hidden="true"></div>
+        <div class="session-skeleton short" aria-hidden="true"></div>
+      </nav>
+
+      <div class="runtime-card">
+        <div class="runtime-heading">
+          <span class="status-dot" id="connection-dot"></span>
+          <span id="connection-label">正在连接</span>
+        </div>
+        <strong id="model-name">OpenAI compatible</strong>
+        <span id="agent-name">加载 Agent…</span>
+      </div>
+    </aside>
+
+    <main class="workspace" id="main-content">
+      <header class="topbar">
+        <button class="icon-button mobile-only" id="open-sidebar" type="button" aria-label="打开会话导航">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg>
+        </button>
+        <div class="task-heading">
+          <span class="eyebrow">当前任务</span>
+          <h1 id="task-title">新任务</h1>
+        </div>
+        <div class="topbar-actions">
+          <span class="run-state" id="run-state"><span></span>就绪</span>
+          <button class="activity-button" id="toggle-inspector" type="button" aria-expanded="false" aria-controls="inspector">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 19V9m7 10V5m7 14v-7"/></svg>
+            执行记录
+            <span class="activity-count" id="activity-count">0</span>
+          </button>
+        </div>
+      </header>
+
+      <div class="connection-banner" id="connection-banner" role="alert" hidden>
+        <div>
+          <strong>无法连接到 Agent 服务</strong>
+          <span id="connection-error">请确认服务仍在运行。</span>
+        </div>
+        <button class="text-button" id="retry-bootstrap" type="button">重新连接</button>
+      </div>
+
+      <section class="conversation" id="conversation" aria-label="任务对话" aria-live="polite">
+        <div class="empty-state" id="empty-state">
+          <div class="empty-symbol" aria-hidden="true">
+            <svg viewBox="0 0 48 48"><path d="M11 34 24 9l13 25-13 7-13-7Z"/><path d="m17 31 7-13 7 13-7 4-7-4Z"/></svg>
+          </div>
+          <p class="eyebrow">从目标开始</p>
+          <h2>你想让 Agent 完成什么？</h2>
+          <p class="empty-copy">描述结果即可。过程中调用的工具、需要确认的动作和错误恢复都会清楚地留在这里。</p>
+          <div class="suggestion-list" aria-label="示例任务">
+            <button type="button" data-prompt="只用一句话介绍 ADK Go。">
+              <span>快速问答</span><strong>只用一句话介绍 ADK Go</strong>
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14m-5-5 5 5-5 5"/></svg>
+            </button>
+            <button type="button" data-prompt="现在 Asia/Shanghai 是几点？请调用工具，不要自己计算。">
+              <span>工具调用</span><strong>查询上海当前时间</strong>
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14m-5-5 5 5-5 5"/></svg>
+            </button>
+            <button type="button" data-prompt="请调用 run_command，分别显示 node、go 和 python 的版本。">
+              <span>本地任务</span><strong>检查开发环境版本</strong>
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14m-5-5 5 5-5 5"/></svg>
+            </button>
+          </div>
+        </div>
+        <div class="message-list" id="message-list"></div>
+      </section>
+
+      <footer class="composer-wrap">
+        <div class="progress-note" id="progress-note" role="status" hidden>
+          <span class="spinner" aria-hidden="true"></span>
+          <span id="progress-text">Agent 正在处理</span>
+          <button class="stop-button" id="stop-run" type="button">停止</button>
+        </div>
+        <form class="composer" id="composer-form">
+          <label class="sr-only" for="composer-input">输入任务</label>
+          <textarea id="composer-input" rows="1" maxlength="12000" placeholder="描述目标，或让 Agent 调用工具…" aria-describedby="composer-hint"></textarea>
+          <div class="composer-footer">
+            <span id="composer-hint"><kbd>Enter</kbd> 发送 · <kbd>Shift</kbd> + <kbd>Enter</kbd> 换行</span>
+            <button class="send-button" id="send-button" type="submit" aria-label="发送任务" disabled>
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14m-5-5 5 5-5 5"/></svg>
+            </button>
+          </div>
+        </form>
+        <p class="privacy-note">本地开发界面 · Agent 可直接执行本地命令，请仅处理你信任的内容</p>
+      </footer>
+    </main>
+
+    <aside class="inspector" id="inspector" aria-label="执行记录" hidden>
+      <header class="inspector-header">
+        <div><span class="eyebrow">过程与证据</span><h2>执行记录</h2></div>
+        <button class="icon-button" id="close-inspector" type="button" aria-label="关闭执行记录">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m7 7 10 10M17 7 7 17"/></svg>
+        </button>
+      </header>
+      <section class="inspector-summary" aria-labelledby="summary-heading">
+        <h3 id="summary-heading">本次运行</h3>
+        <dl>
+          <div><dt>状态</dt><dd id="inspector-status">就绪</dd></div>
+          <div><dt>会话</dt><dd id="inspector-session">—</dd></div>
+          <div><dt>事件</dt><dd id="inspector-events">0</dd></div>
+        </dl>
+      </section>
+      <section class="event-section" aria-labelledby="events-heading">
+        <div class="event-section-title"><h3 id="events-heading">时间线</h3><button class="text-button" id="clear-local-events" type="button">清除视图</button></div>
+        <ol class="event-timeline" id="event-timeline">
+          <li class="timeline-empty">运行任务后，模型输出、工具调用和确认请求会出现在这里。</li>
+        </ol>
+      </section>
+    </aside>
+  </div>
+
+  <div class="scrim" id="scrim" hidden></div>
+
+  <dialog class="confirm-dialog" id="delete-dialog">
+    <form method="dialog">
+      <div class="dialog-icon" aria-hidden="true">
+        <svg viewBox="0 0 24 24"><path d="M12 8v5m0 3h.01M4.9 19h14.2L12 5 4.9 19Z"/></svg>
+      </div>
+      <h2>删除这个任务？</h2>
+      <p>会话中的消息与执行记录会从当前内存服务中移除，且无法撤销。</p>
+      <div class="dialog-actions">
+        <button class="secondary-button" value="cancel">保留任务</button>
+        <button class="danger-button" id="confirm-delete" value="confirm">删除任务</button>
+      </div>
+    </form>
+  </dialog>
+
+  <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
+  <script src="/assets/app.js" defer></script>
+</body>
+</html>

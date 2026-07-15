@@ -1,0 +1,163 @@
+package webapp
+
+import (
+	"iter"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"testing"
+	"time"
+
+	"google.golang.org/adk/v2/agent"
+	"google.golang.org/adk/v2/cmd/launcher"
+	"google.golang.org/adk/v2/session"
+)
+
+func testHandler(t *testing.T) http.Handler {
+	t.Helper()
+	testAgent, err := agent.New(agent.Config{
+		Name:        "test_agent",
+		Description: "test agent",
+		Run: func(agent.InvocationContext) iter.Seq2[*session.Event, error] {
+			return func(func(*session.Event, error) bool) {}
+		},
+	})
+	if err != nil {
+		t.Fatalf("create agent: %v", err)
+	}
+	handler, err := newHandler(&launcher.Config{
+		AgentLoader: agent.NewSingleLoader(testAgent),
+	}, &config{sseWriteTimeout: time.Second, traceCapacity: 10})
+	if err != nil {
+		t.Fatalf("newHandler: %v", err)
+	}
+	return handler
+}
+
+func TestHandlerServesWorkbenchWithSecurityHeaders(t *testing.T) {
+	recorder := httptest.NewRecorder()
+	testHandler(t).ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/", nil))
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", recorder.Code, http.StatusOK)
+	}
+	if body := recorder.Body.String(); !strings.Contains(body, "Agent Workbench") || strings.Contains(body, "ADK Web UI") {
+		t.Fatalf("unexpected web app body: %q", body[:min(len(body), 200)])
+	}
+	if got := recorder.Header().Get("Content-Security-Policy"); !strings.Contains(got, "default-src 'self'") {
+		t.Fatalf("Content-Security-Policy = %q", got)
+	}
+}
+
+func TestHandlerMountsADKAPIUnderAPIPrefix(t *testing.T) {
+	recorder := httptest.NewRecorder()
+	testHandler(t).ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/api/list-apps", nil))
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %q", recorder.Code, recorder.Body.String())
+	}
+	if got := strings.TrimSpace(recorder.Body.String()); got != `["test_agent"]` {
+		t.Fatalf("body = %q, want test agent list", got)
+	}
+}
+
+func TestHandlerServesEmbeddedAssets(t *testing.T) {
+	recorder := httptest.NewRecorder()
+	testHandler(t).ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/assets/app.js", nil))
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status = %d", recorder.Code)
+	}
+	if body := recorder.Body.String(); !strings.Contains(body, "bootstrap();") {
+		t.Fatalf("app.js body missing bootstrap call")
+	}
+	for _, marker := range []string{
+		`<details class="execution-group`,
+		`<details class="tool-card`,
+		"executionItems",
+		"executionSummary",
+		"updateThoughtItem",
+		"execution-timeline",
+		"executionDisclosurePreferences",
+		`preference === "open" || (needsAttention && preference !== "closed")`,
+		"思考中",
+		"执行过程",
+		"requestDetail: stringify(original.args ?? call.args)",
+		"activity.responseDetail = stringify(response.response)",
+		"请求参数",
+		"执行结果",
+		"renderMarkdownTable",
+		"message-table-scroll",
+	} {
+		if !strings.Contains(recorder.Body.String(), marker) {
+			t.Fatalf("app.js missing tool disclosure marker %q", marker)
+		}
+	}
+}
+
+func TestExecutionDisclosureStylesAreEmbedded(t *testing.T) {
+	styles, err := staticFiles.ReadFile("static/styles.css")
+	if err != nil {
+		t.Fatalf("read embedded styles: %v", err)
+	}
+	css := string(styles)
+	for _, rule := range []string{
+		".execution-group {",
+		".execution-summary {",
+		"min-height: 38px;",
+		".execution-timeline {",
+		".thought-preview {",
+		"min-height: 34px;",
+	} {
+		if !strings.Contains(css, rule) {
+			t.Fatalf("styles.css missing execution disclosure rule %q", rule)
+		}
+	}
+}
+
+func TestMarkdownTableStylesAreEmbedded(t *testing.T) {
+	styles, err := staticFiles.ReadFile("static/styles.css")
+	if err != nil {
+		t.Fatalf("read embedded styles: %v", err)
+	}
+	css := string(styles)
+	for _, rule := range []string{
+		".message-table-scroll {",
+		".message-table-scroll:focus-visible",
+		".message-content table {",
+		".message-content .align-right",
+	} {
+		if !strings.Contains(css, rule) {
+			t.Fatalf("styles.css missing Markdown table rule %q", rule)
+		}
+	}
+}
+
+func TestLayoutPinsConversationAndComposerToDedicatedGridRows(t *testing.T) {
+	styles, err := staticFiles.ReadFile("static/styles.css")
+	if err != nil {
+		t.Fatalf("read embedded styles: %v", err)
+	}
+	css := string(styles)
+	for _, rule := range []string{
+		".conversation {\n  grid-row: 3;",
+		".composer-wrap {\n  position: relative;\n  grid-row: 4;",
+		".workspace {\n  display: grid;",
+		"overflow: hidden;",
+	} {
+		if !strings.Contains(css, rule) {
+			t.Fatalf("styles.css missing layout regression rule %q", rule)
+		}
+	}
+}
+
+func TestLauncherParsesWebFlags(t *testing.T) {
+	launcher := NewLauncher()
+	rest, err := launcher.Parse([]string{"--port", "9000", "extra"})
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	if len(rest) != 1 || rest[0] != "extra" {
+		t.Fatalf("remaining args = %v", rest)
+	}
+}

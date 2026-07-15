@@ -14,11 +14,13 @@ import (
 	"github.com/hexbee/adkgo-demo/internal/mcpconfig"
 	"github.com/hexbee/adkgo-demo/internal/mcpruntime"
 	"github.com/hexbee/adkgo-demo/internal/skillsruntime"
+	"github.com/hexbee/adkgo-demo/internal/webapp"
 	"github.com/hexbee/adkgo-demo/openaiadapter"
 	"google.golang.org/adk/v2/agent"
 	"google.golang.org/adk/v2/agent/llmagent"
 	"google.golang.org/adk/v2/cmd/launcher"
-	"google.golang.org/adk/v2/cmd/launcher/full"
+	"google.golang.org/adk/v2/cmd/launcher/console"
+	"google.golang.org/adk/v2/cmd/launcher/universal"
 	"google.golang.org/adk/v2/model"
 	"google.golang.org/adk/v2/tool"
 	"google.golang.org/adk/v2/tool/functiontool"
@@ -119,7 +121,7 @@ func main() {
 		log.Fatalf("create agent: %v", err)
 	}
 	launcherConfig := &launcher.Config{AgentLoader: agent.NewSingleLoader(rootAgent)}
-	l := full.NewLauncher()
+	l := universal.NewLauncher(console.NewLauncher(), webapp.NewLauncher())
 	if err := l.Execute(ctx, launcherConfig, os.Args[1:]); err != nil {
 		log.Fatalf("run failed: %v\n\n%s", err, l.CommandLineSyntax())
 	}
