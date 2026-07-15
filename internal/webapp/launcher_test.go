@@ -59,7 +59,7 @@ func TestHandlerServesWorkbenchWithSecurityHeaders(t *testing.T) {
 			t.Fatalf("web app body missing Highlight.js asset %q", marker)
 		}
 	}
-	if got := recorder.Header().Get("Content-Security-Policy"); !strings.Contains(got, "default-src 'self'") {
+	if got := recorder.Header().Get("Content-Security-Policy"); !strings.Contains(got, "default-src 'self'") || !strings.Contains(got, "style-src 'self' 'unsafe-inline'") {
 		t.Fatalf("Content-Security-Policy = %q", got)
 	}
 }
@@ -113,6 +113,27 @@ func TestHandlerServesEmbeddedAssets(t *testing.T) {
 		"repeated.unclosed && source.startsWith(candidate)",
 		"codeLanguageInfo",
 		"scheduleCodeHighlight",
+		"renderMermaidBlock",
+		"renderMarkdown(message.text, message.id, { streaming: message.streaming })",
+		"reconcileMessageElements",
+		"messageRenderSignature",
+		"createMessageElement",
+		"deferMermaid: streaming",
+		`sourceLanguage === "mermaid" && deferMermaid`,
+		`receiving ? "正在生成图示"`,
+		`data-render-state="${deferred ? "waiting" : "pending"}`,
+		"scheduleMermaidRender",
+		"renderPendingMermaidDiagrams",
+		"prepareMermaidFigure",
+		"applyMermaidBatch",
+		"applyMermaidResult",
+		"/assets/vendor/mermaid/mermaid.min.js",
+		`securityLevel: "strict"`,
+		"suppressErrorRendering: true",
+		"mermaidRenderCache",
+		"cleanupMermaidArtifacts",
+		"showMermaidError",
+		"data-mermaid-source",
 		"isConversationNearBottom",
 		"scheduleConversationFollow",
 		"state.conversationScrollFrame !== 0",
@@ -126,6 +147,9 @@ func TestHandlerServesEmbeddedAssets(t *testing.T) {
 		if !strings.Contains(recorder.Body.String(), marker) {
 			t.Fatalf("app.js missing tool disclosure marker %q", marker)
 		}
+	}
+	if strings.Contains(recorder.Body.String(), `els.messageList.innerHTML = state.messages.map(renderMessage).join("")`) {
+		t.Fatal("app.js must preserve unchanged message DOM during streaming updates")
 	}
 }
 
@@ -158,6 +182,27 @@ func TestHandlerServesNestedKaTeXAssets(t *testing.T) {
 		{path: "/assets/vendor/katex/katex.min.css", marker: ".katex"},
 		{path: "/assets/vendor/katex/katex.min.js", marker: "ParseError"},
 		{path: "/assets/vendor/katex/contrib/auto-render.min.js", marker: "renderMathInElement"},
+	}
+	for _, test := range tests {
+		recorder := httptest.NewRecorder()
+		testHandler(t).ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, test.path, nil))
+		if recorder.Code != http.StatusOK {
+			t.Errorf("GET %s status = %d", test.path, recorder.Code)
+			continue
+		}
+		if !strings.Contains(recorder.Body.String(), test.marker) {
+			t.Errorf("GET %s body missing %q", test.path, test.marker)
+		}
+	}
+}
+
+func TestHandlerServesNestedMermaidAssets(t *testing.T) {
+	tests := []struct {
+		path   string
+		marker string
+	}{
+		{path: "/assets/vendor/mermaid/mermaid.min.js", marker: "mermaid"},
+		{path: "/assets/vendor/mermaid/LICENSE", marker: "The MIT License"},
 	}
 	for _, test := range tests {
 		recorder := httptest.NewRecorder()
@@ -233,6 +278,25 @@ func TestCodeHighlightStylesAreEmbedded(t *testing.T) {
 	for _, rule := range []string{".message-code-block {", ".message-code-heading {", ".message-code-block pre code.hljs", ".message-code-block.streaming"} {
 		if !strings.Contains(string(styles), rule) {
 			t.Fatalf("styles.css missing code highlight rule %q", rule)
+		}
+	}
+}
+
+func TestMermaidStylesAreEmbedded(t *testing.T) {
+	styles, err := staticFiles.ReadFile("static/styles.css")
+	if err != nil {
+		t.Fatalf("read embedded styles: %v", err)
+	}
+	for _, rule := range []string{
+		".message-mermaid {",
+		".message-mermaid-canvas {",
+		".message-mermaid-source > summary",
+		`.message-mermaid[data-render-state="waiting"]`,
+		`.message-mermaid[data-render-state="error"]`,
+		".message-mermaid-error",
+	} {
+		if !strings.Contains(string(styles), rule) {
+			t.Fatalf("styles.css missing Mermaid rule %q", rule)
 		}
 	}
 }

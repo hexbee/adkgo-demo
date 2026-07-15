@@ -448,6 +448,64 @@ svg {
 .message-code-block pre { margin: 0; border: 0; border-radius: 0; }
 .message-code-block pre code.hljs { display: block; padding: 0; background: transparent; }
 .message-code-block.streaming .message-code-heading::after { content: "正在生成"; margin-left: auto; color: #89968f; font-size: 9px; }
+.message-mermaid {
+  margin: 16px 0 18px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: #fbfaf6;
+  overflow: hidden;
+}
+.message-mermaid-heading {
+  display: flex;
+  min-height: 38px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 0 13px;
+  border-bottom: 1px solid var(--line);
+  background: #f8f6f0;
+}
+.message-mermaid-title { display: inline-flex; align-items: center; gap: 8px; color: var(--ink); font-size: 11px; }
+.message-mermaid-title strong { font-weight: 680; }
+.message-mermaid-title svg { width: 16px; height: 16px; color: var(--brand); }
+.message-mermaid-status { color: var(--ink-faint); font-size: 10px; }
+.message-mermaid[data-render-state="waiting"] .message-mermaid-status { color: var(--ink-soft); }
+.message-mermaid[data-render-state="ready"] .message-mermaid-status { color: var(--brand); }
+.message-mermaid[data-render-state="error"] .message-mermaid-status { color: var(--danger); }
+.message-mermaid-canvas {
+  display: grid;
+  min-height: 180px;
+  max-width: 100%;
+  padding: clamp(16px, 3vw, 28px);
+  place-items: center;
+  overflow-x: auto;
+  background: #fdfcf9;
+}
+.message-mermaid-canvas svg { display: block; width: auto; max-width: 100%; height: auto; max-height: min(72vh, 680px); margin: auto; }
+.message-mermaid-loading { display: flex; align-items: center; gap: 9px; color: var(--line-strong); }
+.message-mermaid-loading span { width: 9px; height: 9px; border: 1.5px solid currentColor; border-radius: 2px; }
+.message-mermaid-loading span:nth-child(2) { width: 32px; height: 1px; border: 0; border-top: 1px solid currentColor; border-radius: 0; }
+.message-mermaid-source { border-top: 1px solid var(--line); }
+.message-mermaid-source > summary {
+  display: flex;
+  min-height: 38px;
+  align-items: center;
+  gap: 8px;
+  padding: 0 13px;
+  color: var(--ink-soft);
+  font-size: 11px;
+  cursor: pointer;
+  list-style: none;
+}
+.message-mermaid-source > summary::-webkit-details-marker { display: none; }
+.message-mermaid-source > summary:hover { background: rgb(24 32 29 / 3%); }
+.message-mermaid-source > summary small { margin-left: auto; color: var(--ink-faint); font: 9px var(--mono); }
+.mermaid-source-chevron { width: 7px; height: 7px; border-right: 1.5px solid currentColor; border-bottom: 1.5px solid currentColor; transform: rotate(45deg); transition: transform 140ms ease; }
+.message-mermaid-source[open] .mermaid-source-chevron { transform: rotate(225deg); }
+.mermaid-source-code { margin: 0 12px 12px; }
+.message-mermaid-error { display: grid; gap: 4px; max-width: 360px; text-align: center; }
+.message-mermaid-error strong { color: var(--danger); font-size: 12px; }
+.message-mermaid-error span { color: var(--ink-faint); font-size: 11px; }
 .message-math-block, .message-content .katex-display { max-width: 100%; overflow-x: auto; overflow-y: hidden; }
 .message-math-block { margin: 16px 0; padding: 2px 0 4px; }
 .message-math-block .katex-display { margin: 0; }
@@ -700,6 +758,10 @@ kbd { padding: 1px 3px; border: 1px solid var(--line); border-bottom-color: var(
   .empty-state h2 { font-size: 28px; }
   .suggestion-list button { grid-template-columns: 78px minmax(0, 1fr) 20px; gap: 8px; }
   .message.user .message-content { max-width: 94%; }
+  .message-mermaid-canvas { min-height: 150px; padding: 12px; }
+  .message-mermaid-heading,
+  .message-mermaid-source > summary { padding-inline: 11px; }
+  .mermaid-source-code { margin: 0 8px 8px; }
   .composer-wrap { padding: 8px 14px 10px; }
   .composer-footer > span { display: none; }
   .composer-footer { justify-content: space-between; }

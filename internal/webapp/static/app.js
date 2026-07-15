@@ -54,8 +54,12 @@ const state = {
   toastTimer: null,
   mathRenderFrame: 0,
   codeHighlightFrame: 0,
+  mermaidRenderFrame: 0,
   conversationScrollFrame: 0,
   codeHighlighterConfigured: false,
+  mermaidInitialized: false,
+  mermaidLoadPromise: null,
+  mermaidRenderCache: new Map(),
   executionDisclosurePreferences: new Map(),
 };
 localStorage.setItem("adk-workbench-user", state.userId);
@@ -65,6 +69,7 @@ const icons = {
   tool: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m14.5 6.5 3-3 3 3-3 3m-2-1L7 17l-2 2m4-4 2 2"/></svg>',
   check: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12 4 4L19 6"/></svg>',
   alert: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 8v5m0 3h.01M4.9 19h14.2L12 5 4.9 19Z"/></svg>',
+  diagram: '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="4" width="6" height="5" rx="1"/><rect x="14.5" y="15" width="6" height="5" rx="1"/><path d="M9.5 6.5h3a4 4 0 0 1 4 4V15m-5 2.5h3"/></svg>',
 };
 
 function apiPath(path) {
@@ -231,13 +236,56 @@ function renderMessages({ forceFollow = false } = {}) {
     els.messageList.innerHTML = "";
     return;
   }
-  els.messageList.innerHTML = state.messages.map(renderMessage).join("");
+  reconcileMessageElements();
   for (const detail of els.messageList.querySelectorAll("details:not(.execution-group)[data-disclosure-id]")) {
     if (openDisclosures.has(detail.dataset.disclosureId)) detail.open = true;
   }
   scheduleMathRender();
   scheduleCodeHighlight();
+  scheduleMermaidRender();
   scheduleConversationFollow(followOutput);
+}
+
+function reconcileMessageElements() {
+  const existingById = new Map([...els.messageList.children]
+    .map((element) => [element.dataset.messageId, element]));
+
+  for (let index = 0; index < state.messages.length; index += 1) {
+    const message = state.messages[index];
+    const signature = messageRenderSignature(message);
+    let element = existingById.get(String(message.id));
+    if (!element || element.dataset.renderSignature !== signature) {
+      const replacement = createMessageElement(message, signature);
+      if (element) element.replaceWith(replacement);
+      element = replacement;
+    }
+    const elementAtIndex = els.messageList.children[index];
+    if (elementAtIndex !== element) els.messageList.insertBefore(element, elementAtIndex || null);
+  }
+
+  while (els.messageList.children.length > state.messages.length) {
+    els.messageList.lastElementChild.remove();
+  }
+}
+
+function messageRenderSignature(message) {
+  return stableTextHash(JSON.stringify({
+    role: message.role,
+    text: message.text,
+    executionItems: message.executionItems,
+    confirmationMode: message.confirmationMode,
+    error: message.error,
+    streaming: message.streaming,
+    timestamp: message.timestamp,
+  }));
+}
+
+function createMessageElement(message, signature) {
+  const template = document.createElement("template");
+  template.innerHTML = renderMessage(message).trim();
+  const element = template.content.firstElementChild;
+  element.dataset.renderSignature = signature;
+  return element;
 }
 
 function renderMessage(message) {
@@ -249,7 +297,7 @@ function renderMessage(message) {
     ? renderExecution(message)
     : "";
   const content = message.text
-    ? renderMarkdown(message.text)
+    ? renderMarkdown(message.text, message.id, { streaming: message.streaming })
     : message.streaming && !message.executionItems.length
       ? '<span class="typing-cursor" aria-label="正在生成"></span>'
       : "";
@@ -769,10 +817,14 @@ async function deleteSession(sessionId) {
   showToast("任务已删除");
 }
 
-function renderMarkdown(text) {
-  return compactRepeatedMermaidSegments(parseMarkdownSegments(text)).map((segment) => segment.type === "code"
-    ? renderCodeBlock(segment)
-    : renderMarkdownText(segment.text)).join("");
+function renderMarkdown(text, messageId = "message", { streaming = false } = {}) {
+  let codeIndex = 0;
+  return compactRepeatedMermaidSegments(parseMarkdownSegments(text)).map((segment) => {
+    if (segment.type !== "code") return renderMarkdownText(segment.text);
+    const blockKey = `${safeDOMId(messageId)}-${codeIndex}`;
+    codeIndex += 1;
+    return renderCodeBlock(segment, blockKey, { deferMermaid: streaming });
+  }).join("");
 }
 
 function compactRepeatedMermaidSegments(segments) {
@@ -849,12 +901,43 @@ function parseMarkdownSegments(text) {
   return segments;
 }
 
-function renderCodeBlock(segment) {
+function renderCodeBlock(segment, blockKey = "code", { deferMermaid = false } = {}) {
+  const sourceLanguage = String(segment.language || "").trim().toLowerCase().replace(/^language-/, "");
+  if (sourceLanguage === "mermaid" && deferMermaid) {
+    return renderMermaidBlock(segment, blockKey, { deferred: true, receiving: segment.unclosed });
+  }
+  if (sourceLanguage === "mermaid" && !segment.unclosed) return renderMermaidBlock(segment, blockKey, { deferred: deferMermaid });
   const language = codeLanguageInfo(segment.language);
   return `<div class="message-code-block${segment.unclosed ? " streaming" : ""}">
     <div class="message-code-heading"><span>${escapeHTML(language.label)}</span></div>
     <pre><code class="language-${escapeAttr(language.id)}" data-code-language="${escapeAttr(language.id)}">${escapeHTML(segment.text)}</code></pre>
   </div>`;
+}
+
+function renderMermaidBlock(segment, blockKey, { deferred = false, receiving = false } = {}) {
+  const source = normalizedCode(segment.text);
+  const lineCount = source ? source.split("\n").length : 0;
+  const disclosureId = `mermaid-source-${blockKey}`;
+  return `<figure class="message-mermaid" data-mermaid-key="${escapeAttr(blockKey)}" data-render-state="${deferred ? "waiting" : "pending"}">
+    <figcaption class="message-mermaid-heading">
+      <span class="message-mermaid-title">${icons.diagram}<strong>图示</strong></span>
+      <span class="message-mermaid-status" data-mermaid-status>${receiving ? "正在生成图示" : deferred ? "准备图示" : "正在绘制"}</span>
+    </figcaption>
+    <div class="message-mermaid-canvas" data-mermaid-canvas aria-label="Mermaid 图示">
+      <div class="message-mermaid-loading" aria-hidden="true"><span></span><span></span><span></span></div>
+    </div>
+    <details class="message-mermaid-source" data-disclosure-id="${escapeAttr(disclosureId)}">
+      <summary><span>查看 Mermaid 源码</span><small>${lineCount} 行</small><span class="mermaid-source-chevron" aria-hidden="true"></span></summary>
+      <div class="message-code-block mermaid-source-code">
+        <div class="message-code-heading"><span>mermaid</span></div>
+        <pre><code class="language-plaintext" data-code-language="plaintext" data-mermaid-source>${escapeHTML(source)}</code></pre>
+      </div>
+    </details>
+  </figure>`;
+}
+
+function safeDOMId(value) {
+  return String(value || "message").replace(/[^a-zA-Z0-9_-]+/g, "-").slice(0, 80) || "message";
 }
 
 function codeLanguageInfo(rawLanguage) {
@@ -1041,6 +1124,166 @@ function scheduleMathRender() {
       console.warn("Math rendering failed", error);
     }
   });
+}
+
+function scheduleMermaidRender() {
+  window.cancelAnimationFrame(state.mermaidRenderFrame);
+  state.mermaidRenderFrame = window.requestAnimationFrame(() => {
+    state.mermaidRenderFrame = 0;
+    void renderPendingMermaidDiagrams();
+  });
+}
+
+async function renderPendingMermaidDiagrams() {
+  const figures = [...els.messageList.querySelectorAll('.message-mermaid[data-render-state="pending"]')];
+  if (!figures.length || !els.messageList.isConnected) return;
+  let mermaid;
+  try {
+    mermaid = await ensureMermaid();
+  } catch (error) {
+    applyMermaidBatch(figures.map((figure) => ({ figure, error })));
+    return;
+  }
+  const outcomes = await Promise.all(figures.map((figure) => prepareMermaidFigure(figure, mermaid)));
+  applyMermaidBatch(outcomes);
+}
+
+function ensureMermaid() {
+  if (typeof window.mermaid?.render === "function") {
+    initializeMermaid();
+    return Promise.resolve(window.mermaid);
+  }
+  if (state.mermaidLoadPromise) return state.mermaidLoadPromise;
+  state.mermaidLoadPromise = new Promise((resolve, reject) => {
+    const script = document.createElement("script");
+    script.src = "/assets/vendor/mermaid/mermaid.min.js";
+    script.async = true;
+    script.dataset.mermaidLoader = "true";
+    script.addEventListener("load", () => {
+      if (typeof window.mermaid?.render !== "function") {
+        reject(new Error("Mermaid 加载完成，但渲染 API 不可用"));
+        return;
+      }
+      initializeMermaid();
+      resolve(window.mermaid);
+    }, { once: true });
+    script.addEventListener("error", () => reject(new Error("Mermaid 资源加载失败")), { once: true });
+    document.head.append(script);
+  }).catch((error) => {
+    state.mermaidLoadPromise = null;
+    throw error;
+  });
+  return state.mermaidLoadPromise;
+}
+
+function initializeMermaid() {
+  if (state.mermaidInitialized || typeof window.mermaid?.initialize !== "function") return;
+  window.mermaid.initialize({
+    startOnLoad: false,
+    suppressErrorRendering: true,
+    securityLevel: "strict",
+    theme: "base",
+    fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
+    themeVariables: {
+      background: "#fbfaf6",
+      primaryColor: "#e5efeb",
+      primaryTextColor: "#18201d",
+      primaryBorderColor: "#5d8f7d",
+      lineColor: "#50635c",
+      secondaryColor: "#f3f0e8",
+      tertiaryColor: "#f8f6f0",
+    },
+    flowchart: { htmlLabels: false, useMaxWidth: true },
+  });
+  window.mermaid.parseError = () => {};
+  state.mermaidInitialized = true;
+}
+
+async function prepareMermaidFigure(figure, mermaid) {
+  const canvas = figure.querySelector("[data-mermaid-canvas]");
+  const sourceElement = figure.querySelector("[data-mermaid-source]");
+  const source = normalizedCode(sourceElement?.textContent || "");
+  const blockKey = figure.dataset.mermaidKey || "diagram";
+  if (!canvas || !source) {
+    return { figure, error: new Error("Mermaid 源码为空") };
+  }
+  try {
+    const result = await cachedMermaidRender(mermaid, blockKey, source);
+    return { figure, canvas, sourceElement, source, result };
+  } catch (error) {
+    return { figure, error };
+  }
+}
+
+function applyMermaidBatch(outcomes) {
+  const current = outcomes.filter(({ figure, sourceElement, source }) => (
+    figure?.isConnected && (!sourceElement || normalizedCode(sourceElement.textContent) === source)
+  ));
+  if (!current.length) return;
+  const followOutput = state.conversationScrollFrame !== 0 || isConversationNearBottom();
+  for (const outcome of current) {
+    if (outcome.error) showMermaidError(outcome.figure, outcome.error, { followOutput: false });
+    else applyMermaidResult(outcome);
+  }
+  scheduleConversationFollow(followOutput);
+}
+
+function applyMermaidResult({ figure, canvas, result }) {
+  canvas.innerHTML = result.svg;
+  result.bindFunctions?.(canvas);
+  const svg = canvas.querySelector("svg");
+  if (svg) {
+    svg.setAttribute("role", "img");
+    if (!svg.getAttribute("aria-label")) svg.setAttribute("aria-label", "Mermaid 图示");
+  }
+  figure.dataset.renderState = "ready";
+  figure.querySelector("[data-mermaid-status]").textContent = "已绘制";
+}
+
+function cachedMermaidRender(mermaid, blockKey, source) {
+  const sourceHash = stableTextHash(source);
+  const cacheKey = `${blockKey}:${sourceHash}`;
+  if (state.mermaidRenderCache.has(cacheKey)) return state.mermaidRenderCache.get(cacheKey);
+  const renderId = `mermaid-${blockKey}-${sourceHash}`;
+  const renderPromise = mermaid.render(renderId, source).catch((error) => {
+    state.mermaidRenderCache.delete(cacheKey);
+    cleanupMermaidArtifacts(renderId);
+    throw error;
+  });
+  state.mermaidRenderCache.set(cacheKey, renderPromise);
+  while (state.mermaidRenderCache.size > 64) {
+    state.mermaidRenderCache.delete(state.mermaidRenderCache.keys().next().value);
+  }
+  return renderPromise;
+}
+
+function cleanupMermaidArtifacts(renderId) {
+  document.getElementById(`d${renderId}`)?.remove();
+  document.getElementById(`i${renderId}`)?.remove();
+}
+
+function stableTextHash(text) {
+  let hash = 2166136261;
+  for (let index = 0; index < text.length; index += 1) {
+    hash ^= text.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return (hash >>> 0).toString(36);
+}
+
+function showMermaidError(figure, error, { followOutput = true } = {}) {
+  if (!figure?.isConnected) return;
+  const canvas = figure.querySelector("[data-mermaid-canvas]");
+  const shouldFollow = followOutput && (state.conversationScrollFrame !== 0 || isConversationNearBottom());
+  figure.dataset.renderState = "error";
+  figure.querySelector("[data-mermaid-status]").textContent = "无法绘制";
+  if (canvas) {
+    canvas.innerHTML = '<div class="message-mermaid-error"><strong>图示没有成功绘制</strong><span>请展开源码检查 Mermaid 语法。</span></div>';
+  }
+  const source = figure.querySelector(".message-mermaid-source");
+  if (source) source.open = true;
+  if (followOutput) scheduleConversationFollow(shouldFollow);
+  console.warn("Mermaid rendering failed", error);
 }
 
 function scheduleCodeHighlight() {
