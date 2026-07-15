@@ -177,13 +177,16 @@ function messagesFromEvents(events) {
     const userText = event.author === "user"
       ? parts.filter((part) => part.text && !part.thought).map((part) => part.text).join("")
       : "";
-    if (userText) {
-      messages.push(newMessage("user", userText, event.id));
-      assistant = null;
+    if (event.author === "user") {
+      if (userText) {
+        messages.push(newMessage("user", userText, event.id));
+        assistant = null;
+      }
+      restorePersistedFunctionResponses(parts, messages);
       continue;
     }
     const meaningful = parts.some((part) => part.text || part.functionCall || part.functionResponse) || event.errorMessage;
-    if (!meaningful || event.author === "user") continue;
+    if (!meaningful) continue;
     if (!assistant) {
       assistant = newMessage("assistant", "", event.invocationId || event.id);
       messages.push(assistant);
@@ -191,6 +194,25 @@ function messagesFromEvents(events) {
     processEvent(event, assistant, { render: false, record: false });
   }
   return messages;
+}
+
+function restorePersistedFunctionResponses(parts, messages) {
+  for (const part of parts) {
+    const response = part.functionResponse;
+    if (!response?.id) continue;
+    const target = findMessageWithExecutionItem(messages, response.id);
+    if (target) handleFunctionResponse(response, target, false);
+  }
+}
+
+function findMessageWithExecutionItem(messages, itemId) {
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = messages[index];
+    if (message.role === "assistant" && message.executionItems.some((item) => item.id === itemId)) {
+      return message;
+    }
+  }
+  return null;
 }
 
 function newMessage(role, text = "", id = crypto.randomUUID()) {
@@ -714,16 +736,21 @@ function handleFunctionCall(call, event, assistant, record) {
     status: isApproval ? "pending" : "running",
   };
   assistant.executionItems.push(activity);
-  if (isApproval && assistant.confirmationMode !== "auto") openInspector(true);
   if (record) addTimeline("tool", isApproval ? "等待工具确认" : activity.title, activity.requestDetail);
 }
 
 function handleFunctionResponse(response, assistant, record) {
   const activity = assistant.executionItems.find((item) => item.id === response.id);
   if (activity) {
-    activity.status = "completed";
+    const isApproval = activity.type === "approval" || response.name === "adk_request_confirmation";
+    const confirmed = response.response?.confirmed;
+    activity.status = isApproval
+      ? confirmed === true ? "approved" : confirmed === false ? "rejected" : "completed"
+      : "completed";
+    if (isApproval) activity.autoApproved = false;
     activity.responseDetail = stringify(response.response);
   } else {
+    if (response.name === "adk_request_confirmation") return;
     assistant.executionItems.push({
       id: response.id || crypto.randomUUID(),
       type: "tool",
@@ -733,7 +760,13 @@ function handleFunctionResponse(response, assistant, record) {
       status: "completed",
     });
   }
-  if (record) addTimeline("tool", `工具 ${response.name || "调用"} 已返回`, stringify(response.response));
+  if (record) {
+    const confirmed = response.response?.confirmed;
+    const title = response.name === "adk_request_confirmation"
+      ? confirmed === true ? "已允许工具调用" : confirmed === false ? "已拒绝工具调用" : "工具确认已返回"
+      : `工具 ${response.name || "调用"} 已返回`;
+    addTimeline("tool", title, stringify(response.response));
+  }
 }
 
 async function respondToConfirmation(callId, approved, eventId) {

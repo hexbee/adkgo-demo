@@ -329,6 +329,10 @@ func TestHandlerServesEmbeddedAssets(t *testing.T) {
 		`<details class="tool-card`,
 		"executionItems",
 		"confirmationResponse",
+		"restorePersistedFunctionResponses",
+		"findMessageWithExecutionItem",
+		`confirmed === true ? "approved" : confirmed === false ? "rejected"`,
+		`if (response.name === "adk_request_confirmation") return;`,
 		"本次授权已生效",
 		"confirmationMode === \"auto\"",
 		"executionSummary",
@@ -395,6 +399,9 @@ func TestHandlerServesEmbeddedAssets(t *testing.T) {
 	}
 	if strings.Contains(recorder.Body.String(), `els.messageList.innerHTML = state.messages.map(renderMessage).join("")`) {
 		t.Fatal("app.js must preserve unchanged message DOM during streaming updates")
+	}
+	if strings.Contains(recorder.Body.String(), "openInspector(true)") {
+		t.Fatal("app.js must not open the execution inspector without an explicit user action")
 	}
 }
 
@@ -559,6 +566,11 @@ func TestLayoutPinsConversationAndComposerToDedicatedGridRows(t *testing.T) {
 		"overflow: hidden;",
 		"overflow-anchor: none;",
 		"scroll-behavior: auto;",
+		"--scrollbar-thumb:",
+		"scrollbar-color: var(--scrollbar-thumb) transparent;",
+		"scrollbar-gutter: stable;",
+		".session-list::-webkit-scrollbar",
+		".session-list::-webkit-scrollbar-thumb:hover",
 	} {
 		if !strings.Contains(css, rule) {
 			t.Fatalf("styles.css missing layout regression rule %q", rule)

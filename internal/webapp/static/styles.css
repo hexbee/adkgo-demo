@@ -17,6 +17,9 @@
   --danger-soft: #f6dfdc;
   --warning: #a45e19;
   --focus: #2d6dcb;
+  --scrollbar-thumb: color-mix(in srgb, var(--ink-faint) 34%, transparent);
+  --scrollbar-thumb-hover: color-mix(in srgb, var(--ink-soft) 56%, transparent);
+  --scrollbar-thumb-active: color-mix(in srgb, var(--brand) 72%, transparent);
   --sidebar-width: 272px;
   --inspector-width: 326px;
   --shadow-dialog: 0 24px 70px rgb(29 33 30 / 18%);
@@ -217,8 +220,35 @@ svg {
   min-height: 0;
   margin: 0 -6px;
   overflow-y: auto;
+  overscroll-behavior-y: contain;
+  scrollbar-color: var(--scrollbar-thumb) transparent;
+  scrollbar-gutter: stable;
   scrollbar-width: thin;
 }
+
+.session-list:hover { scrollbar-color: var(--scrollbar-thumb-hover) transparent; }
+
+.session-list::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+.session-list::-webkit-scrollbar-track,
+.session-list::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+.session-list::-webkit-scrollbar-thumb {
+  min-height: 44px;
+  border: 3px solid transparent;
+  border-radius: 999px;
+  background: var(--scrollbar-thumb);
+  background-clip: padding-box;
+}
+
+.session-list:hover::-webkit-scrollbar-thumb { background-color: var(--scrollbar-thumb-hover); }
+.session-list::-webkit-scrollbar-thumb:hover { background-color: var(--scrollbar-thumb-active); }
+.session-list::-webkit-scrollbar-thumb:active { background-color: var(--brand); }
 
 .session-item {
   position: relative;
