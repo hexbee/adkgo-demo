@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/gorilla/mux"
+	"github.com/hexbee/adkgo-demo/internal/skillsruntime"
 	"google.golang.org/adk/v2/agent"
 	"google.golang.org/adk/v2/cmd/launcher"
 	"google.golang.org/adk/v2/model"
@@ -265,7 +266,10 @@ func testHandler(t *testing.T) http.Handler {
 	}
 	handler, err := newHandler(&launcher.Config{
 		AgentLoader: agent.NewSingleLoader(testAgent),
-	}, &config{sseWriteTimeout: time.Second, traceCapacity: 10}, nil)
+	}, &config{sseWriteTimeout: time.Second, traceCapacity: 10}, nil, []skillsruntime.Summary{
+		{Name: "concise-writer", Description: "Make writing concise."},
+		{Name: "follow-builders-lite", Description: "Summarize AI builder news."},
+	})
 	if err != nil {
 		t.Fatalf("newHandler: %v", err)
 	}
@@ -287,6 +291,11 @@ func TestHandlerServesWorkbenchWithSecurityHeaders(t *testing.T) {
 			t.Fatalf("web app body missing one-shot execution mode marker %q", marker)
 		}
 	}
+	for _, marker := range []string{`id="skill-picker"`, `contenteditable="true"`, "输入 $ 调用 Skill"} {
+		if !strings.Contains(recorder.Body.String(), marker) {
+			t.Fatalf("web app body missing Skill composer marker %q", marker)
+		}
+	}
 	for _, marker := range []string{"/assets/vendor/katex/katex.min.css", "/assets/vendor/katex/katex.min.js", "/assets/vendor/katex/contrib/auto-render.min.js"} {
 		if !strings.Contains(recorder.Body.String(), marker) {
 			t.Fatalf("web app body missing KaTeX asset %q", marker)
@@ -299,6 +308,42 @@ func TestHandlerServesWorkbenchWithSecurityHeaders(t *testing.T) {
 	}
 	if got := recorder.Header().Get("Content-Security-Policy"); !strings.Contains(got, "default-src 'self'") || !strings.Contains(got, "style-src 'self' 'unsafe-inline'") {
 		t.Fatalf("Content-Security-Policy = %q", got)
+	}
+}
+
+func TestHandlerServesProjectSkillCatalog(t *testing.T) {
+	recorder := httptest.NewRecorder()
+	testHandler(t).ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/api/project-skills", nil))
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", recorder.Code, http.StatusOK)
+	}
+	if got := recorder.Header().Get("Content-Type"); got != "application/json; charset=utf-8" {
+		t.Fatalf("Content-Type = %q", got)
+	}
+	var got []skillsruntime.Summary
+	if err := json.Unmarshal(recorder.Body.Bytes(), &got); err != nil {
+		t.Fatalf("decode catalog: %v", err)
+	}
+	want := []skillsruntime.Summary{
+		{Name: "concise-writer", Description: "Make writing concise."},
+		{Name: "follow-builders-lite", Description: "Summarize AI builder news."},
+	}
+	if len(got) != len(want) {
+		t.Fatalf("catalog = %#v, want %#v", got, want)
+	}
+	for index := range want {
+		if got[index] != want[index] {
+			t.Fatalf("catalog[%d] = %#v, want %#v", index, got[index], want[index])
+		}
+	}
+}
+
+func TestProjectSkillsHandlerReturnsEmptyArray(t *testing.T) {
+	recorder := httptest.NewRecorder()
+	projectSkillsHandler(nil).ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/api/project-skills", nil))
+	if got := strings.TrimSpace(recorder.Body.String()); got != "[]" {
+		t.Fatalf("empty catalog body = %q, want []", got)
 	}
 }
 
@@ -392,6 +437,11 @@ func TestHandlerServesEmbeddedAssets(t *testing.T) {
 		"scheduleMathRender",
 		`{ left: "\\[", right: "\\]", display: true }`,
 		"message-table-scroll",
+		`api("/project-skills")`,
+		"findSkillTrigger",
+		"createSkillMention",
+		"deleteAdjacentSkill",
+		"submitText(editorText())",
 	} {
 		if !strings.Contains(recorder.Body.String(), marker) {
 			t.Fatalf("app.js missing tool disclosure marker %q", marker)
@@ -402,6 +452,23 @@ func TestHandlerServesEmbeddedAssets(t *testing.T) {
 	}
 	if strings.Contains(recorder.Body.String(), "openInspector(true)") {
 		t.Fatal("app.js must not open the execution inspector without an explicit user action")
+	}
+}
+
+func TestSkillComposerStylesAreEmbedded(t *testing.T) {
+	styles, err := staticFiles.ReadFile("static/styles.css")
+	if err != nil {
+		t.Fatalf("read embedded styles: %v", err)
+	}
+	for _, rule := range []string{
+		".composer-input {",
+		".skill-mention {",
+		".skill-picker {",
+		`.skill-option[aria-selected="true"]`,
+	} {
+		if !strings.Contains(string(styles), rule) {
+			t.Fatalf("styles.css missing Skill composer rule %q", rule)
+		}
 	}
 }
 
@@ -579,7 +646,7 @@ func TestLayoutPinsConversationAndComposerToDedicatedGridRows(t *testing.T) {
 }
 
 func TestLauncherParsesWebFlags(t *testing.T) {
-	launcher := NewLauncher(nil)
+	launcher := NewLauncher(nil, nil)
 	rest, err := launcher.Parse([]string{"--port", "9000", "extra"})
 	if err != nil {
 		t.Fatalf("Parse: %v", err)

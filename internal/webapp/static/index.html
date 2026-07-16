@@ -113,8 +113,12 @@
           <button class="stop-button" id="stop-run" type="button">停止</button>
         </div>
         <form class="composer" id="composer-form">
-          <label class="sr-only" for="composer-input">输入任务</label>
-          <textarea id="composer-input" rows="1" maxlength="12000" placeholder="描述目标，或让 Agent 调用工具…" aria-describedby="composer-hint"></textarea>
+          <span class="sr-only" id="composer-label">输入任务</span>
+          <div class="skill-picker" id="skill-picker" role="listbox" aria-label="选择 Skill" hidden>
+            <div class="skill-picker-heading"><strong>Skills</strong><span>输入名称筛选</span></div>
+            <div id="skill-picker-options"></div>
+          </div>
+          <div class="composer-input" id="composer-input" contenteditable="true" role="textbox" aria-multiline="true" aria-autocomplete="list" aria-controls="skill-picker" aria-expanded="false" aria-labelledby="composer-label" aria-describedby="composer-hint" data-placeholder="描述目标，输入 $ 调用 Skill…" data-maxlength="12000" spellcheck="true"></div>
           <div class="composer-footer">
             <div class="composer-options">
               <input id="confirmation-mode" type="hidden" value="confirm">
@@ -134,7 +138,7 @@
                 </button>
               </div>
             </div>
-            <span id="composer-hint"><kbd>Enter</kbd> 发送 · <kbd>Shift</kbd> + <kbd>Enter</kbd> 换行</span>
+            <span id="composer-hint"><kbd>$</kbd> Skill · <kbd>Enter</kbd> 发送 · <kbd>Shift</kbd> + <kbd>Enter</kbd> 换行</span>
             <button class="send-button" id="send-button" type="submit" aria-label="发送任务" disabled>
               <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14m-5-5 5 5-5 5"/></svg>
             </button>

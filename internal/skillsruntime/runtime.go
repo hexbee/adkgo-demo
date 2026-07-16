@@ -20,7 +20,14 @@ type Result struct {
 	Found   bool
 	Count   int
 	Root    string
+	Skills  []Summary
 	Toolset tool.Toolset
+}
+
+// Summary is the public, presentation-safe portion of a loaded Skill.
+type Summary struct {
+	Name        string `json:"name"`
+	Description string `json:"description"`
 }
 
 // Build discovers and completely preloads project-local Agent Skills.
@@ -49,7 +56,14 @@ func Build(ctx context.Context, projectRoot string) (Result, error) {
 	if err != nil {
 		return Result{}, fmt.Errorf("list %s: %w", RelativeRoot, err)
 	}
-	result := Result{Found: true, Count: len(frontmatters), Root: root}
+	summaries := make([]Summary, 0, len(frontmatters))
+	for _, frontmatter := range frontmatters {
+		summaries = append(summaries, Summary{
+			Name:        frontmatter.Name,
+			Description: frontmatter.Description,
+		})
+	}
+	result := Result{Found: true, Count: len(frontmatters), Root: root, Skills: summaries}
 	if result.Count == 0 {
 		return result, nil
 	}

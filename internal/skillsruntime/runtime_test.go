@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"reflect"
 	"sort"
 	"strings"
 	"sync"
@@ -116,6 +117,13 @@ func TestBuildValidSkills(t *testing.T) {
 	}
 	if !result.Found || result.Count != 2 || result.Toolset == nil {
 		t.Fatalf("result = %#v", result)
+	}
+	wantSkills := []Summary{
+		{Name: "alpha-skill", Description: "Alpha description"},
+		{Name: "beta-skill", Description: "Beta description"},
+	}
+	if !reflect.DeepEqual(result.Skills, wantSkills) {
+		t.Fatalf("Skill summaries = %#v, want %#v", result.Skills, wantSkills)
 	}
 }
 

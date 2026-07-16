@@ -46,13 +46,14 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
-button, textarea { font: inherit; }
+button, textarea, [contenteditable] { font: inherit; }
 button { color: inherit; }
 button, a { -webkit-tap-highlight-color: transparent; }
 
 button:focus-visible,
 a:focus-visible,
 textarea:focus-visible,
+.composer-input:focus-visible,
 summary:focus-visible {
   outline: 3px solid color-mix(in srgb, var(--focus) 28%, transparent);
   outline-offset: 2px;
@@ -667,6 +668,7 @@ svg {
 .stop-button:hover { border-color: var(--danger); color: var(--danger); }
 
 .composer {
+  position: relative;
   padding: 13px 14px 10px;
   border: 1px solid var(--line-strong);
   border-radius: var(--radius-lg);
@@ -675,9 +677,29 @@ svg {
   transition: border-color 140ms ease, box-shadow 140ms ease;
 }
 .composer:focus-within { border-color: #66877c; box-shadow: 0 0 0 3px rgb(23 63 53 / 8%), 0 8px 24px rgb(27 38 33 / 7%); }
-.composer textarea { display: block; width: 100%; max-height: 170px; padding: 0 1px; border: 0; outline: 0; background: transparent; color: var(--ink); line-height: 1.55; resize: none; }
-.composer textarea::placeholder { color: #90968f; }
-.composer textarea:disabled { cursor: not-allowed; }
+.composer-input { display: block; width: 100%; min-height: 22px; max-height: 170px; padding: 0 1px; border: 0; outline: 0; background: transparent; color: var(--ink); line-height: 1.55; white-space: pre-wrap; overflow-x: hidden; overflow-y: auto; overflow-wrap: anywhere; }
+.composer .composer-input:focus-visible { outline: 0; }
+.composer-input:empty::before { color: #90968f; content: attr(data-placeholder); pointer-events: none; }
+.composer-input[aria-disabled="true"] { cursor: not-allowed; opacity: .68; }
+.skill-mention { display: inline; color: var(--focus); font-weight: 620; line-height: inherit; white-space: nowrap; vertical-align: baseline; user-select: all; }
+.skill-mention svg { display: inline-block; width: 1em; height: 1em; margin-right: 5px; vertical-align: -.14em; stroke-width: 1.65; }
+.skill-mention > span { line-height: inherit; vertical-align: baseline; }
+.skill-picker { position: absolute; left: 0; bottom: calc(100% + 9px); z-index: 16; width: min(430px, calc(100vw - 36px)); padding: 7px; border: 1px solid var(--line); border-radius: var(--radius-md); background: var(--surface-strong); box-shadow: var(--shadow-dialog); transform-origin: bottom left; }
+.skill-picker-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; padding: 4px 7px 7px; color: var(--ink-soft); }
+.skill-picker-heading strong { color: var(--ink); font-size: 11px; }
+.skill-picker-heading span { font-size: 9px; }
+#skill-picker-options { display: grid; max-height: 282px; overflow-y: auto; }
+.skill-option { display: grid; grid-template-columns: 24px minmax(0, 1fr); gap: 8px; align-items: center; min-height: 54px; padding: 8px; border-radius: 7px; cursor: pointer; }
+.skill-option[aria-selected="true"], .skill-option:hover { background: var(--brand-soft); }
+.skill-option-icon { display: grid; width: 24px; height: 24px; place-items: center; border-radius: 6px; background: color-mix(in srgb, var(--focus) 10%, transparent); color: var(--focus); }
+.skill-option-icon svg { width: 16px; height: 16px; stroke-width: 1.65; }
+.skill-option-copy { display: grid; gap: 2px; min-width: 0; }
+.skill-option-copy strong { color: var(--ink); font-size: 11px; }
+.skill-option-copy small { color: var(--ink-faint); font-size: 9px; line-height: 1.4; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.skill-picker-empty { padding: 17px 10px; color: var(--ink-faint); font-size: 10px; text-align: center; }
+@media (prefers-reduced-motion: no-preference) {
+  .skill-picker:not([hidden]) { animation: mode-menu-in 140ms ease-out; }
+}
 .composer-footer { justify-content: space-between; gap: 12px; margin-top: 11px; }
 .composer-footer > span { color: var(--ink-faint); font-size: 10px; }
 .composer-options { position: relative; display: flex; align-items: center; margin-right: auto; }

@@ -44,6 +44,14 @@ func TestAgentInstructionIncludesCodeFenceContract(t *testing.T) {
 	}
 }
 
+func TestAgentInstructionTreatsSkillReferencesAsExplicit(t *testing.T) {
+	for _, want := range []string{"$<skill-name>", "explicit request", "call load_skill for every referenced available Skill"} {
+		if !strings.Contains(agentInstruction, want) {
+			t.Errorf("agent instruction missing explicit Skill contract %q", want)
+		}
+	}
+}
+
 func TestAgentInstructionAvoidsDuplicateMermaidSource(t *testing.T) {
 	for _, want := range []string{"exactly one fenced mermaid block", "Do not repeat the same Mermaid source", "canonical source for both rendering and copying"} {
 		if !strings.Contains(agentInstruction, want) {

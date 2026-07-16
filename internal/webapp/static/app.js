@@ -14,6 +14,8 @@ const els = {
   messageList: $("#message-list"),
   form: $("#composer-form"),
   input: $("#composer-input"),
+  skillPicker: $("#skill-picker"),
+  skillPickerOptions: $("#skill-picker-options"),
   send: $("#send-button"),
   confirmationMode: $("#confirmation-mode"),
   executionModeControl: $("#execution-mode-control"),
@@ -62,6 +64,11 @@ const state = {
   mermaidRenderCache: new Map(),
   executionDisclosurePreferences: new Map(),
   titleRequests: new Set(),
+  skills: [],
+  skillsError: "",
+  skillMatches: [],
+  skillActiveIndex: 0,
+  skillTriggerRange: null,
 };
 localStorage.setItem("adk-workbench-user", state.userId);
 
@@ -71,7 +78,10 @@ const icons = {
   check: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12 4 4L19 6"/></svg>',
   alert: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 8v5m0 3h.01M4.9 19h14.2L12 5 4.9 19Z"/></svg>',
   diagram: '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="4" width="6" height="5" rx="1"/><rect x="14.5" y="15" width="6" height="5" rx="1"/><path d="M9.5 6.5h3a4 4 0 0 1 4 4V15m-5 2.5h3"/></svg>',
+  skill: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m12 3 7 4-7 4-7-4 7-4Z"/><path d="m5 7v9l7 4 7-4V7M12 11v9"/></svg>',
 };
+
+const composerMaxLength = Number(els.input.dataset.maxlength) || 12000;
 
 function apiPath(path) {
   return `/api${path}`;
@@ -98,13 +108,14 @@ function encode(value) {
 async function bootstrap() {
   setConnection("loading");
   els.connectionBanner.hidden = true;
-  els.input.disabled = true;
+  setEditorDisabled(true);
   updateComposer();
   try {
     const apps = await api("/list-apps");
     if (!Array.isArray(apps) || apps.length === 0) throw new Error("服务中没有可用的 Agent");
     state.appName = apps[0];
     els.agentName.textContent = state.appName;
+    await loadSkillCatalog();
     await loadSessions();
     if (state.sessions.length) {
       const latest = [...state.sessions].sort((a, b) => b.lastUpdateTime - a.lastUpdateTime)[0];
@@ -113,10 +124,23 @@ async function bootstrap() {
       await createSession();
     }
     setConnection("connected");
-    els.input.disabled = false;
+    setEditorDisabled(false);
     updateComposer();
   } catch (error) {
     showConnectionError(error);
+  }
+}
+
+async function loadSkillCatalog() {
+  try {
+    const skills = await api("/project-skills");
+    state.skills = Array.isArray(skills)
+      ? skills.filter((skill) => typeof skill?.name === "string" && skill.name)
+      : [];
+    state.skillsError = "";
+  } catch (error) {
+    state.skills = [];
+    state.skillsError = friendlyError(error);
   }
 }
 
@@ -518,6 +542,10 @@ function addTimeline(type, title, detail = "") {
 async function submitText(text) {
   const prompt = text.trim();
   if (!prompt || state.running || !state.currentSession) return;
+  if (prompt.length > composerMaxLength) {
+    showToast(`输入内容不能超过 ${composerMaxLength} 个字符`);
+    return;
+  }
   const confirmationMode = els.confirmationMode.value === "auto" ? "auto" : "confirm";
   state.lastPrompt = prompt;
   const user = newMessage("user", prompt);
@@ -532,7 +560,7 @@ async function submitText(text) {
   state.currentSession.events = state.currentSession.events || [];
   state.currentSession.events.push({ author: "user", content: { parts: [{ text: prompt }] } });
   if (!persistentSessionTitle(state.currentSession)) state.currentSession.localTitle = prompt;
-  els.input.value = "";
+  clearEditor();
   resizeInput();
   updateTaskTitle();
   renderSessions();
@@ -805,7 +833,7 @@ function confirmationResponse(callId, approved) {
 
 function setRunning(running) {
   state.running = running;
-  els.input.disabled = running;
+  setEditorDisabled(running);
   els.newSession.disabled = running;
   els.executionModeControl.disabled = running;
   if (running) setConfirmationModeMenu(false);
@@ -829,12 +857,12 @@ function showConnectionError(error) {
   setConnection("error");
   els.connectionError.textContent = friendlyError(error);
   els.connectionBanner.hidden = false;
-  els.input.disabled = true;
+  setEditorDisabled(true);
   updateComposer();
 }
 
 function updateComposer() {
-  els.send.disabled = state.running || els.input.disabled || !els.input.value.trim() || !state.currentSession;
+  els.send.disabled = state.running || isEditorDisabled() || !editorText().trim() || !state.currentSession;
 }
 
 function updateConfirmationMode() {
@@ -866,9 +894,266 @@ function chooseConfirmationMode(mode) {
 }
 
 function resizeInput() {
-  els.input.style.height = "auto";
-  els.input.style.height = `${Math.min(els.input.scrollHeight, 170)}px`;
   updateComposer();
+}
+
+function isEditorDisabled() {
+  return els.input.getAttribute("aria-disabled") === "true";
+}
+
+function setEditorDisabled(disabled) {
+  els.input.contentEditable = String(!disabled);
+  els.input.setAttribute("aria-disabled", String(Boolean(disabled)));
+  if (disabled) closeSkillPicker();
+}
+
+function editorText() {
+  const chunks = [];
+  const visit = (node) => {
+    if (node.nodeType === Node.TEXT_NODE) {
+      chunks.push(node.nodeValue || "");
+      return;
+    }
+    if (node.nodeType !== Node.ELEMENT_NODE) return;
+    if (node.classList.contains("skill-mention")) {
+      chunks.push(`$${node.dataset.skill || ""}`);
+      return;
+    }
+    if (node.tagName === "BR") {
+      chunks.push("\n");
+      return;
+    }
+    const block = node !== els.input && (node.tagName === "DIV" || node.tagName === "P");
+    if (block && chunks.length && !chunks[chunks.length - 1].endsWith("\n")) chunks.push("\n");
+    for (const child of node.childNodes) visit(child);
+    if (block && chunks.length && !chunks[chunks.length - 1].endsWith("\n")) chunks.push("\n");
+  };
+  for (const child of els.input.childNodes) visit(child);
+  return chunks.join("").replaceAll("\u00a0", " ").replace(/\n+$/, "");
+}
+
+function setEditorText(text) {
+  const fragment = document.createDocumentFragment();
+  String(text || "").split("\n").forEach((line, index) => {
+    if (index) fragment.append(document.createElement("br"));
+    if (line) fragment.append(document.createTextNode(line));
+  });
+  els.input.replaceChildren(fragment);
+  closeSkillPicker();
+  updateComposer();
+}
+
+function clearEditor() {
+  els.input.replaceChildren();
+  closeSkillPicker();
+  updateComposer();
+}
+
+function skillDisplayName(name) {
+  return String(name || "").split("-").filter(Boolean)
+    .map((part) => `${part.charAt(0).toUpperCase()}${part.slice(1)}`).join(" ");
+}
+
+function findSkillTrigger() {
+  const selection = window.getSelection();
+  if (!selection || !selection.isCollapsed || !selection.rangeCount) return null;
+  const range = selection.getRangeAt(0);
+  if (!els.input.contains(range.startContainer)) return null;
+  let textNode = range.startContainer;
+  let textOffset = range.startOffset;
+  if (textNode.nodeType === Node.ELEMENT_NODE) {
+    const candidate = textNode.childNodes[textOffset - 1];
+    if (candidate?.nodeType !== Node.TEXT_NODE) return null;
+    textNode = candidate;
+    textOffset = candidate.nodeValue?.length || 0;
+  }
+  if (textNode.nodeType !== Node.TEXT_NODE || textNode.parentElement?.closest(".skill-mention")) return null;
+  const prefix = (textNode.nodeValue || "").slice(0, textOffset);
+  const match = prefix.match(/(?:^|[\s\u00a0])\$([a-zA-Z0-9-]*)$/);
+  if (!match) return null;
+  const start = prefix.lastIndexOf("$");
+  const triggerRange = document.createRange();
+  triggerRange.setStart(textNode, start);
+  triggerRange.setEnd(textNode, textOffset);
+  return { query: match[1].toLowerCase(), range: triggerRange };
+}
+
+function updateSkillPicker() {
+  const trigger = findSkillTrigger();
+  if (!trigger || state.running) {
+    closeSkillPicker();
+    return;
+  }
+  state.skillTriggerRange = trigger.range.cloneRange();
+  state.skillMatches = state.skills.filter((skill) => {
+    const haystack = `${skill.name} ${skill.description || ""}`.toLowerCase();
+    return haystack.includes(trigger.query);
+  });
+  state.skillActiveIndex = Math.min(state.skillActiveIndex, Math.max(0, state.skillMatches.length - 1));
+  renderSkillPicker(trigger.query);
+}
+
+function renderSkillPicker(query) {
+  els.skillPicker.hidden = false;
+  els.input.setAttribute("aria-expanded", "true");
+  if (!state.skillMatches.length) {
+    const message = state.skillsError
+      ? "无法读取项目 Skills"
+      : state.skills.length
+        ? `没有匹配 “${query}” 的 Skill`
+        : "当前项目没有加载 Skills";
+    els.skillPickerOptions.innerHTML = `<div class="skill-picker-empty">${escapeHTML(message)}</div>`;
+    els.input.removeAttribute("aria-activedescendant");
+    return;
+  }
+  els.skillPickerOptions.innerHTML = state.skillMatches.map((skill, index) => `
+    <div class="skill-option" id="skill-option-${index}" role="option" aria-selected="${index === state.skillActiveIndex}" data-skill-index="${index}">
+      <span class="skill-option-icon">${icons.skill}</span>
+      <span class="skill-option-copy"><strong>${escapeHTML(skillDisplayName(skill.name))}</strong><small>${escapeHTML(skill.description || `$${skill.name}`)}</small></span>
+    </div>`).join("");
+  els.input.setAttribute("aria-activedescendant", `skill-option-${state.skillActiveIndex}`);
+  requestAnimationFrame(() => document.getElementById(`skill-option-${state.skillActiveIndex}`)?.scrollIntoView({ block: "nearest" }));
+}
+
+function closeSkillPicker() {
+  els.skillPicker.hidden = true;
+  els.input.setAttribute("aria-expanded", "false");
+  els.input.removeAttribute("aria-activedescendant");
+  state.skillMatches = [];
+  state.skillActiveIndex = 0;
+  state.skillTriggerRange = null;
+}
+
+function moveSkillSelection(delta) {
+  if (!state.skillMatches.length) return;
+  state.skillActiveIndex = (state.skillActiveIndex + delta + state.skillMatches.length) % state.skillMatches.length;
+  renderSkillPicker("");
+}
+
+function createSkillMention(skill) {
+  const mention = document.createElement("span");
+  mention.className = "skill-mention";
+  mention.contentEditable = "false";
+  mention.dataset.skill = skill.name;
+  mention.setAttribute("aria-label", `Skill：${skillDisplayName(skill.name)}`);
+  mention.innerHTML = `${icons.skill}<span>${escapeHTML(skillDisplayName(skill.name))}</span>`;
+  return mention;
+}
+
+function chooseSkill(index = state.skillActiveIndex) {
+  const skill = state.skillMatches[index];
+  const triggerRange = state.skillTriggerRange;
+  if (!skill || !triggerRange) return;
+  const insertedLength = skill.name.length + 1;
+  const replacedLength = triggerRange.toString().length;
+  if (editorText().length - replacedLength + insertedLength > composerMaxLength) {
+    showToast(`输入内容不能超过 ${composerMaxLength} 个字符`);
+    return;
+  }
+  try {
+    triggerRange.deleteContents();
+    const mention = createSkillMention(skill);
+    const spacer = document.createTextNode(" ");
+    triggerRange.insertNode(spacer);
+    triggerRange.insertNode(mention);
+    const selection = window.getSelection();
+    const caret = document.createRange();
+    caret.setStart(spacer, 1);
+    caret.collapse(true);
+    selection.removeAllRanges();
+    selection.addRange(caret);
+  } catch (_) {
+    closeSkillPicker();
+    return;
+  }
+  closeSkillPicker();
+  updateComposer();
+}
+
+function insertPlainText(text) {
+  const selection = window.getSelection();
+  if (!selection || !selection.rangeCount) return;
+  const range = selection.getRangeAt(0);
+  if (!els.input.contains(range.commonAncestorContainer)) return;
+  range.deleteContents();
+  const fragment = document.createDocumentFragment();
+  let lastNode = null;
+  String(text).split("\n").forEach((line, index) => {
+    if (index) {
+      lastNode = document.createElement("br");
+      fragment.append(lastNode);
+    }
+    if (line) {
+      lastNode = document.createTextNode(line);
+      fragment.append(lastNode);
+    }
+  });
+  if (!lastNode) lastNode = fragment.appendChild(document.createTextNode(""));
+  range.insertNode(fragment);
+  const caret = document.createRange();
+  caret.setStartAfter(lastNode);
+  caret.collapse(true);
+  selection.removeAllRanges();
+  selection.addRange(caret);
+}
+
+function deleteAdjacentSkill(event) {
+  if (!event.key || !["Backspace", "Delete"].includes(event.key)) return false;
+  const selection = window.getSelection();
+  if (!selection || !selection.isCollapsed || !selection.rangeCount) return false;
+  const range = selection.getRangeAt(0);
+  let mention = null;
+  let cleanupWhitespace = false;
+  const nearestSibling = (node, direction) => {
+    let candidate = direction === "previous" ? node.previousSibling : node.nextSibling;
+    while (candidate?.nodeType === Node.TEXT_NODE && /^\s*$/.test(candidate.nodeValue || "")) {
+      candidate = direction === "previous" ? candidate.previousSibling : candidate.nextSibling;
+    }
+    return candidate;
+  };
+  if (range.startContainer.nodeType === Node.TEXT_NODE) {
+    const textNode = range.startContainer;
+    if (event.key === "Backspace" && /^\s*$/.test(textNode.nodeValue.slice(0, range.startOffset))) {
+      const candidate = nearestSibling(textNode, "previous");
+      mention = candidate?.classList?.contains("skill-mention") ? candidate : null;
+      cleanupWhitespace = Boolean(mention);
+    } else if (event.key === "Delete" && /^\s*$/.test(textNode.nodeValue.slice(range.startOffset))) {
+      const candidate = nearestSibling(textNode, "next");
+      mention = candidate?.classList?.contains("skill-mention") ? candidate : null;
+      cleanupWhitespace = Boolean(mention);
+    }
+  } else if (range.startContainer === els.input) {
+    let offset = event.key === "Backspace" ? range.startOffset - 1 : range.startOffset;
+    let candidate = els.input.childNodes[offset];
+    const step = event.key === "Backspace" ? -1 : 1;
+    while (candidate?.nodeType === Node.TEXT_NODE && /^\s*$/.test(candidate.nodeValue || "")) {
+      offset += step;
+      candidate = els.input.childNodes[offset];
+    }
+    mention = candidate?.classList?.contains("skill-mention") ? candidate : null;
+  }
+  if (!mention) return false;
+  event.preventDefault();
+  if (cleanupWhitespace && range.startContainer.nodeType === Node.TEXT_NODE) {
+    const textNode = range.startContainer;
+    if (event.key === "Backspace") textNode.deleteData(0, range.startOffset);
+    else textNode.deleteData(range.startOffset, textNode.length - range.startOffset);
+  }
+  const parent = mention.parentNode;
+  const offset = [...parent.childNodes].indexOf(mention);
+  mention.remove();
+  const caret = document.createRange();
+  if (!editorText()) {
+    els.input.replaceChildren();
+    caret.setStart(els.input, 0);
+  } else {
+    caret.setStart(parent, Math.min(Math.max(0, offset), parent.childNodes.length));
+  }
+  caret.collapse(true);
+  selection.removeAllRanges();
+  selection.addRange(caret);
+  updateComposer();
+  return true;
 }
 
 function isConversationNearBottom() {
@@ -1452,9 +1737,58 @@ function friendlyError(error) {
 
 els.form.addEventListener("submit", (event) => {
   event.preventDefault();
-  submitText(els.input.value);
+  submitText(editorText());
 });
-els.input.addEventListener("input", resizeInput);
+els.input.addEventListener("input", (event) => {
+  if (!event.isComposing && !editorText()) els.input.replaceChildren();
+  resizeInput();
+  updateSkillPicker();
+});
+els.input.addEventListener("click", updateSkillPicker);
+els.input.addEventListener("beforeinput", (event) => {
+  if (event.isComposing || !event.inputType.startsWith("insert") || !event.data) return;
+  const selectedLength = window.getSelection()?.toString().length || 0;
+  if (editorText().length - selectedLength + event.data.length <= composerMaxLength) return;
+  event.preventDefault();
+  showToast(`输入内容不能超过 ${composerMaxLength} 个字符`);
+});
+els.input.addEventListener("paste", (event) => {
+  event.preventDefault();
+  const text = event.clipboardData?.getData("text/plain") || "";
+  const selectedLength = window.getSelection()?.toString().length || 0;
+  const available = Math.max(0, composerMaxLength - editorText().length + selectedLength);
+  insertPlainText(text.slice(0, available));
+  if (text.length > available) showToast(`已截断到 ${composerMaxLength} 个字符`);
+  resizeInput();
+  updateSkillPicker();
+});
+els.input.addEventListener("drop", (event) => {
+  event.preventDefault();
+  els.input.focus();
+  const text = event.dataTransfer?.getData("text/plain") || "";
+  const available = Math.max(0, composerMaxLength - editorText().length);
+  insertPlainText(text.slice(0, available));
+  if (text.length > available) showToast(`已截断到 ${composerMaxLength} 个字符`);
+  resizeInput();
+  updateSkillPicker();
+});
+els.skillPickerOptions.addEventListener("pointerdown", (event) => {
+  const option = event.target.closest("[data-skill-index]");
+  if (!option) return;
+  event.preventDefault();
+  chooseSkill(Number(option.dataset.skillIndex));
+});
+els.skillPickerOptions.addEventListener("pointermove", (event) => {
+  const option = event.target.closest("[data-skill-index]");
+  if (!option) return;
+  const index = Number(option.dataset.skillIndex);
+  if (index === state.skillActiveIndex) return;
+  state.skillActiveIndex = index;
+  for (const candidate of els.skillPickerOptions.querySelectorAll("[data-skill-index]")) {
+    candidate.setAttribute("aria-selected", String(Number(candidate.dataset.skillIndex) === index));
+  }
+  els.input.setAttribute("aria-activedescendant", `skill-option-${index}`);
+});
 els.executionModeControl.addEventListener("click", () => setConfirmationModeMenu(els.confirmationModeMenu.hidden));
 els.confirmationModeMenu.addEventListener("click", (event) => {
   const option = event.target.closest("[data-confirmation-mode]");
@@ -1477,8 +1811,34 @@ els.confirmationModeMenu.addEventListener("keydown", (event) => {
 });
 document.addEventListener("click", (event) => {
   if (!event.target.closest(".composer-options")) setConfirmationModeMenu(false);
+  if (!event.target.closest(".composer")) closeSkillPicker();
 });
 els.input.addEventListener("keydown", (event) => {
+  if (deleteAdjacentSkill(event)) return;
+  if (!els.skillPicker.hidden && !event.isComposing) {
+    if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+      event.preventDefault();
+      moveSkillSelection(event.key === "ArrowDown" ? 1 : -1);
+      return;
+    }
+    if ((event.key === "Enter" || event.key === "Tab") && state.skillMatches.length) {
+      event.preventDefault();
+      chooseSkill();
+      return;
+    }
+    if (event.key === "Escape") {
+      event.preventDefault();
+      closeSkillPicker();
+      return;
+    }
+  }
+  if (event.key === "Enter" && event.shiftKey && !event.isComposing) {
+    event.preventDefault();
+    insertPlainText("\n");
+    resizeInput();
+    closeSkillPicker();
+    return;
+  }
   if (event.key === "Enter" && !event.shiftKey && !event.isComposing) {
     event.preventDefault();
     els.form.requestSubmit();
@@ -1525,7 +1885,7 @@ els.messageList.addEventListener("click", (event) => {
 
 document.querySelectorAll("[data-prompt]").forEach((button) => {
   button.addEventListener("click", () => {
-    els.input.value = button.dataset.prompt;
+    setEditorText(button.dataset.prompt);
     resizeInput();
     els.input.focus();
   });
