@@ -328,6 +328,11 @@ func TestHandlerServesWorkbenchWithSecurityHeaders(t *testing.T) {
 			t.Fatalf("web app body missing draft protection marker %q", marker)
 		}
 	}
+	for _, marker := range []string{`id="open-sidebar"`, `id="close-sidebar"`, `aria-controls="sidebar"`, "收起会话导航", "展开会话导航"} {
+		if !strings.Contains(recorder.Body.String(), marker) {
+			t.Fatalf("web app body missing collapsible sidebar marker %q", marker)
+		}
+	}
 	if strings.Count(recorder.Body.String(), `class="brand-mark-links"`) != 2 {
 		t.Fatal("workbench must use the Agent Work mark in both the sidebar and empty state")
 	}
@@ -498,6 +503,9 @@ func TestHandlerServesEmbeddedAssets(t *testing.T) {
 		"reasoningEffortLabel",
 		"startDraft",
 		"requestNewDraft",
+		"setSidebarCollapsed",
+		"updateSidebarControls",
+		"adk-workbench-sidebar-collapsed",
 		"createUnpublishedSession",
 		"publishCurrentSession",
 		"discardUnpublishedSession",
@@ -524,6 +532,23 @@ func TestHandlerServesEmbeddedAssets(t *testing.T) {
 	}
 	if strings.Contains(recorder.Body.String(), `showToast("回复已复制")`) {
 		t.Fatal("app.js must keep successful copy feedback local to the reply action")
+	}
+}
+
+func TestCollapsibleSidebarStylesAreEmbedded(t *testing.T) {
+	styles, err := staticFiles.ReadFile("static/styles.css")
+	if err != nil {
+		t.Fatalf("read embedded styles: %v", err)
+	}
+	for _, rule := range []string{
+		".app-shell.sidebar-collapsed {",
+		".app-shell.inspector-open.sidebar-collapsed {",
+		".app-shell.sidebar-collapsed .sidebar {",
+		".app-shell.sidebar-collapsed .sidebar-open-button",
+	} {
+		if !strings.Contains(string(styles), rule) {
+			t.Fatalf("styles.css missing collapsible sidebar rule %q", rule)
+		}
 	}
 }
 

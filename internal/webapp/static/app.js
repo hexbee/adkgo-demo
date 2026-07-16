@@ -3,6 +3,8 @@ const $ = (selector) => document.querySelector(selector);
 const els = {
   shell: $("#app-shell"),
   sidebar: $("#sidebar"),
+  openSidebar: $("#open-sidebar"),
+  closeSidebar: $("#close-sidebar"),
   scrim: $("#scrim"),
   sessionList: $("#session-list"),
   sessionCount: $("#session-count"),
@@ -56,6 +58,7 @@ const state = {
   running: false,
   controller: null,
   inspectorOpen: false,
+  sidebarCollapsed: localStorage.getItem("adk-workbench-sidebar-collapsed") === "true",
   pendingDeleteId: "",
   lastPrompt: "",
   toastTimer: null,
@@ -1293,18 +1296,54 @@ function openInspector(open) {
 }
 
 function openSidebar() {
-  els.sidebar.classList.add("open");
+  if (isMobileSidebar()) {
+    els.sidebar.classList.add("open");
+  } else {
+    setSidebarCollapsed(false);
+  }
+  updateSidebarControls();
   updateScrim();
 }
 
 function closeSidebar() {
   els.sidebar.classList.remove("open");
+  updateSidebarControls();
   updateScrim();
 }
 
+function isMobileSidebar() {
+  return window.matchMedia("(max-width: 760px)").matches;
+}
+
+function setSidebarCollapsed(collapsed) {
+  state.sidebarCollapsed = Boolean(collapsed);
+  els.shell.classList.toggle("sidebar-collapsed", state.sidebarCollapsed);
+  localStorage.setItem("adk-workbench-sidebar-collapsed", String(state.sidebarCollapsed));
+  updateSidebarControls();
+  updateScrim();
+}
+
+function updateSidebarControls() {
+  const mobile = isMobileSidebar();
+  const expanded = mobile ? els.sidebar.classList.contains("open") : !state.sidebarCollapsed;
+  els.openSidebar.setAttribute("aria-expanded", String(expanded));
+  els.closeSidebar.setAttribute("aria-expanded", String(expanded));
+  els.openSidebar.setAttribute("aria-label", mobile ? "打开会话导航" : "展开会话导航");
+  els.closeSidebar.setAttribute("aria-label", mobile ? "关闭会话导航" : "收起会话导航");
+  els.openSidebar.title = mobile ? "打开侧栏" : "展开侧栏";
+  els.closeSidebar.title = mobile ? "关闭侧栏" : "收起侧栏";
+}
+
 function updateScrim() {
+  const mobile = isMobileSidebar();
   const narrow = window.matchMedia("(max-width: 1180px)").matches;
-  els.scrim.hidden = !(els.sidebar.classList.contains("open") || (narrow && state.inspectorOpen));
+  els.scrim.hidden = !((mobile && els.sidebar.classList.contains("open")) || (narrow && state.inspectorOpen));
+}
+
+function handleViewportResize() {
+  if (!isMobileSidebar()) els.sidebar.classList.remove("open");
+  updateSidebarControls();
+  updateScrim();
 }
 
 function showToast(message) {
@@ -2102,8 +2141,11 @@ els.brandHome.addEventListener("click", (event) => {
 els.stopRun.addEventListener("click", () => state.controller?.abort());
 els.toggleInspector.addEventListener("click", () => openInspector(!state.inspectorOpen));
 $("#close-inspector").addEventListener("click", () => openInspector(false));
-$("#open-sidebar").addEventListener("click", openSidebar);
-$("#close-sidebar").addEventListener("click", closeSidebar);
+els.openSidebar.addEventListener("click", openSidebar);
+els.closeSidebar.addEventListener("click", () => {
+  if (isMobileSidebar()) closeSidebar();
+  else setSidebarCollapsed(true);
+});
 els.scrim.addEventListener("click", () => { closeSidebar(); openInspector(false); });
 $("#retry-bootstrap").addEventListener("click", bootstrap);
 $("#clear-local-events").addEventListener("click", () => { state.timeline = []; renderInspector(); });
@@ -2178,6 +2220,8 @@ window.addEventListener("keydown", (event) => {
   }
   if (event.key === "Escape") { closeSidebar(); openInspector(false); }
 });
-window.addEventListener("resize", updateScrim);
+window.addEventListener("resize", handleViewportResize);
 
+setSidebarCollapsed(state.sidebarCollapsed);
+requestAnimationFrame(() => els.shell.classList.add("sidebar-ready"));
 bootstrap();
