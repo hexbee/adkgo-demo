@@ -74,6 +74,7 @@ localStorage.setItem("adk-workbench-user", state.userId);
 
 const icons = {
   trash: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16m-10 4v6m4-6v6M9 7l1-2h4l1 2m3 0-1 13H7L6 7"/></svg>',
+  copy: '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="8" y="8" width="11" height="11" rx="2"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"/></svg>',
   tool: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m14.5 6.5 3-3 3 3-3 3m-2-1L7 17l-2 2m4-4 2 2"/></svg>',
   check: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12 4 4L19 6"/></svg>',
   alert: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 8v5m0 3h.01M4.9 19h14.2L12 5 4.9 19Z"/></svg>',
@@ -411,9 +412,14 @@ function renderMessage(message) {
   const error = message.error
     ? `<div class="message-error"><strong>运行没有完成</strong><span>${escapeHTML(message.error)}</span>${state.lastPrompt ? '<br><button class="text-button" type="button" data-retry>重试上次任务</button>' : ""}</div>`
     : "";
+  const actions = !isUser && message.text && !message.streaming
+    ? `<div class="message-actions" aria-label="回复操作">
+        <button class="message-action-button" type="button" data-copy-reply aria-label="复制回复" data-tooltip="复制回复">${icons.copy}</button>
+      </div>`
+    : "";
   return `<article class="message ${isUser ? "user" : "assistant"}" data-message-id="${escapeAttr(message.id)}">
     <div class="message-meta"><span class="author">${isUser ? "你" : "Agent"}</span><time>${formatTime(message.timestamp)}</time>${modeBadge}</div>
-    ${execution}<div class="message-content">${content}</div>${error}
+    ${execution}<div class="message-content">${content}</div>${error}${actions}
   </article>`;
 }
 
@@ -1199,6 +1205,55 @@ function showToast(message) {
   state.toastTimer = window.setTimeout(() => { els.toast.hidden = true; }, 3200);
 }
 
+async function copyAssistantReply(messageId, button) {
+  const message = state.messages.find((candidate) => String(candidate.id) === String(messageId));
+  if (!message || message.role === "user" || !message.text || message.streaming) return;
+  button.disabled = true;
+  try {
+    await writeClipboardText(message.text);
+    button.classList.add("copied");
+    button.innerHTML = icons.check;
+    button.setAttribute("aria-label", "已复制");
+    button.dataset.tooltip = "已复制";
+    window.setTimeout(() => {
+      if (!button.isConnected) return;
+      button.classList.remove("copied");
+      button.innerHTML = icons.copy;
+      button.setAttribute("aria-label", "复制回复");
+      button.dataset.tooltip = "复制回复";
+    }, 1600);
+  } catch (_) {
+    showToast("复制失败，请重试");
+  } finally {
+    button.disabled = false;
+  }
+}
+
+async function writeClipboardText(text) {
+  if (navigator.clipboard?.writeText) {
+    try {
+      await navigator.clipboard.writeText(text);
+      return;
+    } catch (_) {
+      // Fall back for browsers or permissions that reject the Clipboard API.
+    }
+  }
+  const textarea = document.createElement("textarea");
+  textarea.value = text;
+  textarea.setAttribute("readonly", "");
+  textarea.style.position = "fixed";
+  textarea.style.inset = "0 auto auto -9999px";
+  document.body.append(textarea);
+  textarea.select();
+  let copied = false;
+  try {
+    copied = document.execCommand("copy");
+  } finally {
+    textarea.remove();
+  }
+  if (!copied) throw new Error("clipboard copy failed");
+}
+
 async function deleteSession(sessionId) {
   const path = `/apps/${encode(state.appName)}/users/${encode(state.userId)}/sessions/${encode(sessionId)}`;
   await api(path, { method: "DELETE" });
@@ -1381,6 +1436,18 @@ function renderMarkdownText(text) {
       lineIndex = table.nextIndex - 1;
       continue;
     }
+    const blockquote = renderMarkdownBlockquote(lines, lineIndex);
+    if (blockquote) {
+      if (listOpen) { html += "</ul>"; listOpen = false; }
+      html += blockquote.html;
+      lineIndex = blockquote.nextIndex - 1;
+      continue;
+    }
+    if (isMarkdownThematicBreak(trimmed)) {
+      if (listOpen) { html += "</ul>"; listOpen = false; }
+      html += "<hr>";
+      continue;
+    }
     const listMatch = trimmed.match(/^[-*]\s+(.+)/);
     if (listMatch) {
       if (!listOpen) { html += "<ul>"; listOpen = true; }
@@ -1389,12 +1456,35 @@ function renderMarkdownText(text) {
     }
     if (listOpen) { html += "</ul>"; listOpen = false; }
     if (!trimmed) continue;
-    const heading = trimmed.match(/^#{1,3}\s+(.+)/);
-    if (heading) html += `<h3>${inlineMarkdown(heading[1])}</h3>`;
+    const heading = trimmed.match(/^(#{1,6})\s+(.+?)(?:\s+#+\s*)?$/);
+    if (heading) {
+      const level = heading[1].length;
+      html += `<h${level}>${inlineMarkdown(heading[2])}</h${level}>`;
+    }
     else html += `<p>${inlineMarkdown(trimmed)}</p>`;
   }
   if (listOpen) html += "</ul>";
   return html;
+}
+
+function renderMarkdownBlockquote(lines, startIndex) {
+  const quotedLines = [];
+  let nextIndex = startIndex;
+  while (nextIndex < lines.length) {
+    const match = lines[nextIndex].match(/^ {0,3}>[ \t]?(.*)$/);
+    if (!match) break;
+    quotedLines.push(match[1]);
+    nextIndex += 1;
+  }
+  if (!quotedLines.length) return null;
+  return {
+    html: `<blockquote>${renderMarkdownText(quotedLines.join("\n"))}</blockquote>`,
+    nextIndex,
+  };
+}
+
+function isMarkdownThematicBreak(text) {
+  return /^(?:(?:\*[ \t]*){3,}|(?:-[ \t]*){3,}|(?:_[ \t]*){3,})$/.test(text);
 }
 
 function renderMarkdownMathBlock(lines, startIndex) {
@@ -1491,11 +1581,29 @@ function tableAlignment(cell) {
 }
 
 function inlineMarkdown(text) {
+  const protectedTokens = [];
+  const protect = (html) => `\uE000${protectedTokens.push(html) - 1}\uE001`;
   let value = escapeHTML(text);
-  value = value.replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>");
-  value = value.replace(/`([^`]+)`/g, "<code>$1</code>");
-  value = value.replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, '<a href="$2" target="_blank" rel="noreferrer">$1</a>');
-  return value;
+  value = value.replace(/`([^`\n]+)`/g, (_, code) => protect(`<code>${code}</code>`));
+  value = value.replace(/!\[([^\]\n]*)\]\((https?:\/\/[^\s)]+)\)/g, (_, alt, source) => (
+    protect(`<img class="message-inline-image" src="${source}" alt="${alt}" loading="lazy" decoding="async" referrerpolicy="no-referrer">`)
+  ));
+  value = value.replace(/\[([^\]\n]+)\]\((https?:\/\/[^\s)]+)\)/g, (_, label, href) => (
+    protect(`<a href="${href}" target="_blank" rel="noreferrer">${renderInlineFormatting(label)}</a>`)
+  ));
+  value = renderInlineFormatting(value);
+  return value.replace(/\uE000(\d+)\uE001/g, (_, index) => protectedTokens[Number(index)]);
+}
+
+function renderInlineFormatting(value) {
+  return value
+    .replace(/\*\*\*(.+?)\*\*\*/g, "<strong><em>$1</em></strong>")
+    .replace(/___(.+?)___/g, "<strong><em>$1</em></strong>")
+    .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
+    .replace(/__(.+?)__/g, "<strong>$1</strong>")
+    .replace(/~~(.+?)~~/g, "<del>$1</del>")
+    .replace(/\*([^*\n]+)\*/g, "<em>$1</em>")
+    .replace(/_([^_\n]+)_/g, "<em>$1</em>");
 }
 
 function scheduleMathRender() {
@@ -1865,6 +1973,12 @@ els.sessionList.addEventListener("click", (event) => {
 });
 
 els.messageList.addEventListener("click", (event) => {
+  const copyReply = event.target.closest("[data-copy-reply]");
+  if (copyReply) {
+    const messageElement = copyReply.closest("[data-message-id]");
+    copyAssistantReply(messageElement?.dataset.messageId, copyReply);
+    return;
+  }
   const executionSummary = event.target.closest(".execution-summary");
   if (executionSummary) {
     const group = executionSummary.parentElement;

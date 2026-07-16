@@ -306,7 +306,7 @@ func TestHandlerServesWorkbenchWithSecurityHeaders(t *testing.T) {
 			t.Fatalf("web app body missing Highlight.js asset %q", marker)
 		}
 	}
-	if got := recorder.Header().Get("Content-Security-Policy"); !strings.Contains(got, "default-src 'self'") || !strings.Contains(got, "style-src 'self' 'unsafe-inline'") {
+	if got := recorder.Header().Get("Content-Security-Policy"); !strings.Contains(got, "default-src 'self'") || !strings.Contains(got, "style-src 'self' 'unsafe-inline'") || !strings.Contains(got, "img-src 'self' data: https:") {
 		t.Fatalf("Content-Security-Policy = %q", got)
 	}
 }
@@ -400,6 +400,15 @@ func TestHandlerServesEmbeddedAssets(t *testing.T) {
 		"执行结果",
 		"renderMarkdownTable",
 		"renderMarkdownMathBlock",
+		"renderMarkdownBlockquote",
+		"isMarkdownThematicBreak",
+		"renderInlineFormatting",
+		"message-inline-image",
+		"referrerpolicy=\"no-referrer\"",
+		"copyAssistantReply",
+		"writeClipboardText",
+		"navigator.clipboard.writeText",
+		"data-copy-reply",
 		"parseMarkdownSegments",
 		"compactRepeatedMermaidSegments",
 		"isRepeatedCodeSeparator",
@@ -452,6 +461,9 @@ func TestHandlerServesEmbeddedAssets(t *testing.T) {
 	}
 	if strings.Contains(recorder.Body.String(), "openInspector(true)") {
 		t.Fatal("app.js must not open the execution inspector without an explicit user action")
+	}
+	if strings.Contains(recorder.Body.String(), `showToast("回复已复制")`) {
+		t.Fatal("app.js must keep successful copy feedback local to the reply action")
 	}
 }
 
@@ -573,6 +585,31 @@ func TestMarkdownTableStylesAreEmbedded(t *testing.T) {
 	} {
 		if !strings.Contains(css, rule) {
 			t.Fatalf("styles.css missing Markdown table rule %q", rule)
+		}
+	}
+}
+
+func TestMarkdownBlockStylesAreEmbedded(t *testing.T) {
+	styles, err := staticFiles.ReadFile("static/styles.css")
+	if err != nil {
+		t.Fatalf("read embedded styles: %v", err)
+	}
+	css := string(styles)
+	for _, rule := range []string{
+		".message-actions {",
+		".message-action-button {",
+		".message-action-button.copied {",
+		".message-action-button:focus-visible::after",
+		".message-content h1,",
+		".message-content h6 {",
+		".message-content blockquote {",
+		".message-content blockquote blockquote {",
+		".message-content hr {",
+		".message-content del {",
+		".message-content .message-inline-image {",
+	} {
+		if !strings.Contains(css, rule) {
+			t.Fatalf("styles.css missing Markdown block rule %q", rule)
 		}
 	}
 }
