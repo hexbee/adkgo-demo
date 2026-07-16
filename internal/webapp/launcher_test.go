@@ -269,11 +269,33 @@ func testHandler(t *testing.T) http.Handler {
 	}, &config{sseWriteTimeout: time.Second, traceCapacity: 10}, nil, []skillsruntime.Summary{
 		{Name: "concise-writer", Description: "Make writing concise."},
 		{Name: "follow-builders-lite", Description: "Summarize AI builder news."},
+	}, RuntimeInfo{
+		BaseURL: "https://api.deepseek.com/v1", ModelName: "deepseek-v4-flash",
+		ContextWindow: 1000000, MaxTokens: 384000, ThinkingMode: "enabled", ReasoningEffort: "high",
 	})
 	if err != nil {
 		t.Fatalf("newHandler: %v", err)
 	}
 	return handler
+}
+
+func TestHandlerServesRuntimeInfoWithoutCredentials(t *testing.T) {
+	recorder := httptest.NewRecorder()
+	testHandler(t).ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/api/runtime-info", nil))
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", recorder.Code, http.StatusOK)
+	}
+	var got RuntimeInfo
+	if err := json.Unmarshal(recorder.Body.Bytes(), &got); err != nil {
+		t.Fatalf("decode runtime info: %v", err)
+	}
+	if got.ModelName != "deepseek-v4-flash" || got.ContextWindow != 1000000 || got.MaxTokens != 384000 || got.ThinkingMode != "enabled" || got.ReasoningEffort != "high" {
+		t.Fatalf("runtime info = %#v", got)
+	}
+	if strings.Contains(strings.ToLower(recorder.Body.String()), "api_key") || strings.Contains(strings.ToLower(recorder.Body.String()), "apikey") {
+		t.Fatalf("runtime info exposes credential field: %s", recorder.Body.String())
+	}
 }
 
 func TestHandlerServesWorkbenchWithSecurityHeaders(t *testing.T) {
@@ -283,7 +305,7 @@ func TestHandlerServesWorkbenchWithSecurityHeaders(t *testing.T) {
 	if recorder.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d", recorder.Code, http.StatusOK)
 	}
-	if body := recorder.Body.String(); !strings.Contains(body, "Agent Workbench") || strings.Contains(body, "ADK Web UI") {
+	if body := recorder.Body.String(); !strings.Contains(body, "Agent Work") || !strings.Contains(body, "MCP · CLI · Skills") || strings.Contains(body, "ADK Web UI") {
 		t.Fatalf("unexpected web app body: %q", body[:min(len(body), 200)])
 	}
 	for _, marker := range []string{`id="confirmation-mode-menu"`, "逐项确认", "本次授权", "下一条任务中的工具自动执行"} {
@@ -299,6 +321,17 @@ func TestHandlerServesWorkbenchWithSecurityHeaders(t *testing.T) {
 	for _, marker := range []string{`id="skill-picker"`, `contenteditable="true"`, "输入 $ 调用 Skill"} {
 		if !strings.Contains(recorder.Body.String(), marker) {
 			t.Fatalf("web app body missing Skill composer marker %q", marker)
+		}
+	}
+	if strings.Count(recorder.Body.String(), `class="brand-mark-links"`) != 2 {
+		t.Fatal("workbench must use the Agent Work mark in both the sidebar and empty state")
+	}
+	if strings.Contains(recorder.Body.String(), "M11 34 24 9l13 25") {
+		t.Fatal("workbench still contains the legacy empty-state mark")
+	}
+	for _, marker := range []string{`id="runtime-model"`, `id="runtime-base-url"`, `id="runtime-context"`, `id="runtime-max-output"`, `id="runtime-thinking"`, `id="runtime-reasoning-effort"`, "推理强度"} {
+		if !strings.Contains(recorder.Body.String(), marker) {
+			t.Fatalf("web app body missing runtime information marker %q", marker)
 		}
 	}
 	for _, marker := range []string{"/assets/vendor/katex/katex.min.css", "/assets/vendor/katex/katex.min.js", "/assets/vendor/katex/contrib/auto-render.min.js"} {
@@ -454,6 +487,15 @@ func TestHandlerServesEmbeddedAssets(t *testing.T) {
 		"scheduleMathRender",
 		`{ left: "\\[", right: "\\]", display: true }`,
 		"message-table-scroll",
+		`api("/runtime-info")`,
+		"formatTokenCount",
+		"thinkingModeLabel",
+		"reasoningEffortLabel",
+		"startDraft",
+		"createUnpublishedSession",
+		"publishCurrentSession",
+		"discardUnpublishedSession",
+		`els.brandHome.addEventListener("click"`,
 		`api("/project-skills")`,
 		"findSkillTrigger",
 		"createSkillMention",
@@ -466,6 +508,9 @@ func TestHandlerServesEmbeddedAssets(t *testing.T) {
 	}
 	if strings.Contains(recorder.Body.String(), `els.messageList.innerHTML = state.messages.map(renderMessage).join("")`) {
 		t.Fatal("app.js must preserve unchanged message DOM during streaming updates")
+	}
+	if strings.Contains(recorder.Body.String(), "filter(sessionHasUserMessage)") {
+		t.Fatal("app.js must not filter session summaries by events because list responses may omit events")
 	}
 	if strings.Contains(recorder.Body.String(), "openInspector(true)") {
 		t.Fatal("app.js must not open the execution inspector without an explicit user action")
@@ -691,7 +736,7 @@ func TestLayoutPinsConversationAndComposerToDedicatedGridRows(t *testing.T) {
 }
 
 func TestLauncherParsesWebFlags(t *testing.T) {
-	launcher := NewLauncher(nil, nil)
+	launcher := NewLauncher(nil, nil, RuntimeInfo{})
 	rest, err := launcher.Parse([]string{"--port", "9000", "extra"})
 	if err != nil {
 		t.Fatalf("Parse: %v", err)

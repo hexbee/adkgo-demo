@@ -7,6 +7,7 @@ const els = {
   sessionList: $("#session-list"),
   sessionCount: $("#session-count"),
   newSession: $("#new-session"),
+  brandHome: $("#brand-home"),
   taskTitle: $("#task-title"),
   runState: $("#run-state"),
   conversation: $("#conversation"),
@@ -32,11 +33,14 @@ const els = {
   eventTimeline: $("#event-timeline"),
   toggleInspector: $("#toggle-inspector"),
   activityCount: $("#activity-count"),
-  connectionDot: $("#connection-dot"),
-  connectionLabel: $("#connection-label"),
   connectionBanner: $("#connection-banner"),
   connectionError: $("#connection-error"),
-  agentName: $("#agent-name"),
+  runtimeModel: $("#runtime-model"),
+  runtimeBaseURL: $("#runtime-base-url"),
+  runtimeContext: $("#runtime-context"),
+  runtimeMaxOutput: $("#runtime-max-output"),
+  runtimeThinking: $("#runtime-thinking"),
+  runtimeReasoningEffort: $("#runtime-reasoning-effort"),
   deleteDialog: $("#delete-dialog"),
   toast: $("#toast"),
 };
@@ -107,7 +111,6 @@ function encode(value) {
 }
 
 async function bootstrap() {
-  setConnection("loading");
   els.connectionBanner.hidden = true;
   setEditorDisabled(true);
   updateComposer();
@@ -115,21 +118,50 @@ async function bootstrap() {
     const apps = await api("/list-apps");
     if (!Array.isArray(apps) || apps.length === 0) throw new Error("服务中没有可用的 Agent");
     state.appName = apps[0];
-    els.agentName.textContent = state.appName;
+    await loadRuntimeInfo();
     await loadSkillCatalog();
     await loadSessions();
     if (state.sessions.length) {
       const latest = [...state.sessions].sort((a, b) => b.lastUpdateTime - a.lastUpdateTime)[0];
       await openSession(latest.id);
     } else {
-      await createSession();
+      startDraft();
     }
-    setConnection("connected");
     setEditorDisabled(false);
     updateComposer();
   } catch (error) {
     showConnectionError(error);
   }
+}
+
+async function loadRuntimeInfo() {
+  const info = await api("/runtime-info");
+  els.runtimeModel.textContent = info.modelName || "未知模型";
+  els.runtimeBaseURL.textContent = info.baseUrl || "—";
+  els.runtimeBaseURL.title = info.baseUrl || "";
+  els.runtimeContext.textContent = formatTokenCount(info.contextWindow);
+  els.runtimeMaxOutput.textContent = formatTokenCount(info.maxTokens);
+  els.runtimeThinking.textContent = thinkingModeLabel(info.thinkingMode);
+  els.runtimeReasoningEffort.textContent = reasoningEffortLabel(info.reasoningEffort);
+}
+
+function formatTokenCount(value) {
+  const count = Number(value);
+  if (!Number.isFinite(count) || count <= 0) return "—";
+  if (count >= 1000000 && count % 1000000 === 0) return `${count / 1000000}M`;
+  if (count >= 1000 && count % 1000 === 0) return `${count / 1000}K`;
+  return new Intl.NumberFormat().format(count);
+}
+
+function thinkingModeLabel(mode) {
+  if (mode === "enabled") return "已开启";
+  if (mode === "disabled") return "已关闭";
+  return "模型默认";
+}
+
+function reasoningEffortLabel(effort) {
+  if (!effort) return "模型默认";
+  return effort.charAt(0).toUpperCase() + effort.slice(1);
 }
 
 async function loadSkillCatalog() {
@@ -161,18 +193,55 @@ async function loadSessions() {
   renderSessions();
 }
 
-async function createSession() {
+function startDraft() {
   if (state.running) return;
-  const path = `/apps/${encode(state.appName)}/users/${encode(state.userId)}/sessions`;
-  const session = await api(path, { method: "POST", body: "{}" });
-  state.sessions.unshift(session);
-  state.currentSession = session;
+  state.currentSession = null;
   state.messages = [];
   state.timeline = [];
   state.executionDisclosurePreferences.clear();
   state.lastPrompt = "";
+  clearEditor();
+  resizeInput();
   renderAll({ forceFollow: true });
   closeSidebar();
+  requestAnimationFrame(() => els.input.focus());
+}
+
+async function createUnpublishedSession() {
+  const path = `/apps/${encode(state.appName)}/users/${encode(state.userId)}/sessions`;
+  const session = await api(path, { method: "POST", body: "{}" });
+  session.unpublished = true;
+  state.currentSession = session;
+  return session;
+}
+
+function publishCurrentSession() {
+  const session = state.currentSession;
+  if (!session?.unpublished) return;
+  delete session.unpublished;
+  if (!state.sessions.some((candidate) => candidate.id === session.id)) {
+    state.sessions.unshift(session);
+  }
+  renderSessions();
+}
+
+async function discardUnpublishedSession(session, prompt) {
+  if (!session?.unpublished) return;
+  const path = `/apps/${encode(state.appName)}/users/${encode(state.userId)}/sessions/${encode(session.id)}`;
+  try {
+    await api(path, { method: "DELETE" });
+  } catch (_) {
+    // Keep the failed draft hidden for this page even if cleanup cannot reach the service.
+  }
+  if (state.currentSession?.id !== session.id) return;
+  state.currentSession = null;
+  state.messages = [];
+  state.timeline = [];
+  state.executionDisclosurePreferences.clear();
+  setEditorText(prompt);
+  resizeInput();
+  renderAll({ forceFollow: true });
+  showToast("发送失败，输入内容已保留");
   requestAnimationFrame(() => els.input.focus());
 }
 
@@ -549,10 +618,20 @@ function addTimeline(type, title, detail = "") {
 
 async function submitText(text) {
   const prompt = text.trim();
-  if (!prompt || state.running || !state.currentSession) return;
+  if (!prompt || state.running) return;
   if (prompt.length > composerMaxLength) {
     showToast(`输入内容不能超过 ${composerMaxLength} 个字符`);
     return;
+  }
+  const firstSubmission = !state.currentSession;
+  let unpublishedSession = null;
+  if (firstSubmission) {
+    try {
+      unpublishedSession = await createUnpublishedSession();
+    } catch (error) {
+      showToast(friendlyError(error));
+      return;
+    }
   }
   const confirmationMode = els.confirmationMode.value === "auto" ? "auto" : "confirm";
   state.lastPrompt = prompt;
@@ -574,7 +653,8 @@ async function submitText(text) {
   renderSessions();
   renderMessages({ forceFollow: true });
   addTimeline("message", "任务已提交", truncate(prompt, 100));
-  await runAgent({ role: "user", parts: [{ text: prompt }] }, assistant);
+  const accepted = await runAgent({ role: "user", parts: [{ text: prompt }] }, assistant);
+  if (firstSubmission && !accepted) await discardUnpublishedSession(unpublishedSession, prompt);
 }
 
 async function runAgent(content, assistant, functionCallEventId = "") {
@@ -582,6 +662,7 @@ async function runAgent(content, assistant, functionCallEventId = "") {
   state.controller = new AbortController();
   let nextContent = content;
   let nextFunctionCallEventId = functionCallEventId;
+  let accepted = false;
   let slowTimer = window.setTimeout(() => {
     els.progressText.textContent = "任务仍在执行，可查看记录或停止";
   }, 10000);
@@ -603,6 +684,10 @@ async function runAgent(content, assistant, functionCallEventId = "") {
       });
       if (!response.ok) throw new Error((await response.text()).trim() || `请求失败 (${response.status})`);
       if (!response.body) throw new Error("服务没有返回可读取的流");
+      if (!accepted) {
+        accepted = true;
+        publishCurrentSession();
+      }
       await readEventStream(response.body, (eventName, data) => {
         if (eventName === "error") {
           const parsed = safeJSON(data);
@@ -642,28 +727,31 @@ async function runAgent(content, assistant, functionCallEventId = "") {
     state.controller = null;
     setRunning(false);
     renderMessages();
-    try {
-      await ensureSessionTitle();
-    } catch (_) {
-      // The first-question fallback remains visible; title generation must not affect the answer.
-    }
-    try {
-      await loadSessions();
-      const refreshed = state.sessions.find((session) => session.id === state.currentSession?.id);
-      if (refreshed) {
-        state.currentSession = {
-          ...state.currentSession,
-          ...refreshed,
-          events: state.currentSession.events || [],
-          localTitle: refreshed.localTitle || state.currentSession.localTitle,
-        };
+    if (!state.currentSession?.unpublished) {
+      try {
+        await ensureSessionTitle();
+      } catch (_) {
+        // The first-question fallback remains visible; title generation must not affect the answer.
       }
-      renderSessions();
-      updateTaskTitle();
-    } catch (_) {
-      showToast("结果已保留，但任务列表暂时无法刷新");
+      try {
+        await loadSessions();
+        const refreshed = state.sessions.find((session) => session.id === state.currentSession?.id);
+        if (refreshed) {
+          state.currentSession = {
+            ...state.currentSession,
+            ...refreshed,
+            events: state.currentSession.events || [],
+            localTitle: refreshed.localTitle || state.currentSession.localTitle,
+          };
+        }
+        renderSessions();
+        updateTaskTitle();
+      } catch (_) {
+        showToast("结果已保留，但任务列表暂时无法刷新");
+      }
     }
   }
+  return accepted;
 }
 
 async function readEventStream(stream, onEvent) {
@@ -871,13 +959,7 @@ function updateRunState() {
   els.runState.innerHTML = `<span></span>${status.label}`;
 }
 
-function setConnection(status) {
-  els.connectionDot.className = `status-dot${status === "connected" ? " connected" : status === "error" ? " error" : ""}`;
-  els.connectionLabel.textContent = status === "connected" ? "服务已连接" : status === "error" ? "连接失败" : "正在连接";
-}
-
 function showConnectionError(error) {
-  setConnection("error");
   els.connectionError.textContent = friendlyError(error);
   els.connectionBanner.hidden = false;
   setEditorDisabled(true);
@@ -885,7 +967,7 @@ function showConnectionError(error) {
 }
 
 function updateComposer() {
-  els.send.disabled = state.running || isEditorDisabled() || !editorText().trim() || !state.currentSession;
+  els.send.disabled = state.running || isEditorDisabled() || !editorText().trim();
 }
 
 function updateConfirmationMode() {
@@ -1303,7 +1385,7 @@ async function deleteSession(sessionId) {
   state.sessions = state.sessions.filter((session) => session.id !== sessionId);
   if (state.currentSession?.id === sessionId) {
     if (state.sessions.length) await openSession(state.sessions[0].id);
-    else await createSession();
+    else startDraft();
   }
   renderSessions();
   showToast("任务已删除");
@@ -2002,7 +2084,11 @@ els.input.addEventListener("keydown", (event) => {
     els.form.requestSubmit();
   }
 });
-els.newSession.addEventListener("click", () => createSession().catch((error) => showToast(friendlyError(error))));
+els.newSession.addEventListener("click", startDraft);
+els.brandHome.addEventListener("click", (event) => {
+  event.preventDefault();
+  startDraft();
+});
 els.stopRun.addEventListener("click", () => state.controller?.abort());
 els.toggleInspector.addEventListener("click", () => openInspector(!state.inspectorOpen));
 $("#close-inspector").addEventListener("click", () => openInspector(false));
@@ -2070,7 +2156,7 @@ els.deleteDialog.addEventListener("close", () => {
 window.addEventListener("keydown", (event) => {
   if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
     event.preventDefault();
-    if (!state.running) createSession().catch((error) => showToast(friendlyError(error)));
+    if (!state.running) startDraft();
   }
   if (event.key === "Escape") { closeSidebar(); openInspector(false); }
 });

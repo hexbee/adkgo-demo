@@ -5,8 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="color-scheme" content="light">
   <meta name="theme-color" content="#f3f0e8">
-  <title>Agent Workbench</title>
-  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <title>Agent Work</title>
+  <link rel="icon" href="/favicon.svg?v=2" type="image/svg+xml">
   <link rel="stylesheet" href="/assets/vendor/katex/katex.min.css">
   <link rel="stylesheet" href="/assets/vendor/highlightjs/styles/github-dark-dimmed.min.css">
   <link rel="stylesheet" href="/assets/styles.css">
@@ -16,12 +16,15 @@
   <div class="app-shell" id="app-shell">
     <aside class="sidebar" id="sidebar" aria-label="会话导航">
       <div class="brand-row">
-        <a class="brand" href="/" aria-label="Agent Workbench 首页">
-          <svg class="brand-mark" viewBox="0 0 36 36" aria-hidden="true">
-            <path d="M8 24.5 18 6l10 18.5-10 5.5L8 24.5Z"/>
-            <path d="m12.4 22.4 5.6-10 5.6 10-5.6 3-5.6-3Z"/>
+        <a class="brand" id="brand-home" href="/" aria-label="新建任务">
+          <svg class="brand-mark" viewBox="0 0 32 32" aria-hidden="true">
+            <path class="brand-mark-links" d="M15.8 16 7.5 8.5M15.8 16l8.7-7.5M15.8 16l8.7 8"/>
+            <circle class="brand-mark-node" cx="7.5" cy="8.5" r="2"/>
+            <circle class="brand-mark-node" cx="24.5" cy="8.5" r="2"/>
+            <circle class="brand-mark-node" cx="24.5" cy="24" r="2"/>
+            <circle class="brand-mark-focus" cx="15.8" cy="16" r="3"/>
           </svg>
-          <span><strong>Workbench</strong><small>ADK agent console</small></span>
+          <span><strong>Agent Work</strong><small>MCP · CLI · Skills</small></span>
         </a>
         <button class="icon-button mobile-only" id="close-sidebar" type="button" aria-label="关闭会话导航">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m7 7 10 10M17 7 7 17"/></svg>
@@ -43,13 +46,16 @@
         <div class="session-skeleton short" aria-hidden="true"></div>
       </nav>
 
-      <div class="runtime-card">
-        <div class="runtime-heading">
-          <span class="status-dot" id="connection-dot"></span>
-          <span id="connection-label">正在连接</span>
-        </div>
-        <strong id="model-name">OpenAI compatible</strong>
-        <span id="agent-name">加载 Agent…</span>
+      <div class="runtime-card" aria-labelledby="runtime-heading">
+        <span class="runtime-heading" id="runtime-heading">当前模型</span>
+        <strong id="runtime-model">加载中…</strong>
+        <span class="runtime-endpoint" id="runtime-base-url">—</span>
+        <dl class="runtime-details">
+          <div><dt>Context</dt><dd id="runtime-context">—</dd></div>
+          <div><dt>Max Output</dt><dd id="runtime-max-output">—</dd></div>
+          <div><dt>Thinking</dt><dd id="runtime-thinking">—</dd></div>
+          <div><dt>推理强度</dt><dd id="runtime-reasoning-effort">—</dd></div>
+        </dl>
       </div>
     </aside>
 
@@ -83,7 +89,13 @@
       <section class="conversation" id="conversation" aria-label="任务对话" aria-live="polite">
         <div class="empty-state" id="empty-state">
           <div class="empty-symbol" aria-hidden="true">
-            <svg viewBox="0 0 48 48"><path d="M11 34 24 9l13 25-13 7-13-7Z"/><path d="m17 31 7-13 7 13-7 4-7-4Z"/></svg>
+            <svg viewBox="0 0 32 32">
+              <path class="brand-mark-links" d="M15.8 16 7.5 8.5M15.8 16l8.7-7.5M15.8 16l8.7 8"/>
+              <circle class="brand-mark-node" cx="7.5" cy="8.5" r="2"/>
+              <circle class="brand-mark-node" cx="24.5" cy="8.5" r="2"/>
+              <circle class="brand-mark-node" cx="24.5" cy="24" r="2"/>
+              <circle class="brand-mark-focus" cx="15.8" cy="16" r="3"/>
+            </svg>
           </div>
           <p class="eyebrow">从目标开始</p>
           <h2>你想让 Agent 完成什么？</h2>

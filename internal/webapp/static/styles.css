@@ -124,7 +124,6 @@ svg {
 
 .brand-row,
 .brand,
-.runtime-heading,
 .sidebar-section-heading,
 .topbar,
 .topbar-actions,
@@ -146,25 +145,24 @@ svg {
 .brand-row { justify-content: space-between; }
 
 .brand {
-  gap: 10px;
+  gap: 11px;
   color: var(--ink);
   text-decoration: none;
 }
 
 .brand-mark {
-  width: 34px;
-  height: 34px;
-  padding: 6px;
-  border-radius: 9px;
-  background: var(--brand);
-  color: #f2ad75;
+  width: 30px;
+  height: 30px;
+  flex: none;
+  color: var(--brand);
 }
 
-.brand-mark path:first-child { fill: currentColor; stroke: none; }
-.brand-mark path:last-child { fill: #f7f3ea; stroke: none; }
+.brand-mark-links { stroke: currentColor; stroke-width: 1.55; }
+.brand-mark-node { fill: #e9e5dc; stroke: currentColor; stroke-width: 1.55; }
+.brand-mark-focus { fill: var(--accent); stroke: #e9e5dc; stroke-width: 1.5; }
 
-.brand strong { display: block; font-size: 15px; letter-spacing: -0.01em; }
-.brand small { display: block; margin-top: 2px; color: var(--ink-faint); font: 10px/1.2 var(--mono); }
+.brand strong { display: block; font-size: 16px; font-weight: 680; letter-spacing: -.025em; }
+.brand small { display: block; margin-top: 3px; color: var(--ink-faint); font: 9px/1.2 var(--mono); letter-spacing: .015em; }
 
 .icon-button {
   display: inline-grid;
@@ -316,17 +314,18 @@ svg {
 .session-skeleton.short { width: 68%; }
 
 .runtime-card {
-  padding: 13px 14px;
+  padding: 15px 14px 2px;
   border-top: 1px solid var(--line);
   color: var(--ink-soft);
 }
 
-.runtime-heading { gap: 7px; font-size: 11px; }
-.status-dot { width: 7px; height: 7px; border-radius: 50%; background: #9b968c; }
-.status-dot.connected { background: #3b806a; box-shadow: 0 0 0 3px rgb(59 128 106 / 12%); }
-.status-dot.error { background: var(--danger); }
-.runtime-card strong { display: block; margin-top: 10px; color: var(--ink); font-size: 12px; }
-.runtime-card > span:last-child { display: block; margin-top: 3px; overflow: hidden; text-overflow: ellipsis; font: 10px var(--mono); white-space: nowrap; }
+.runtime-heading { color: var(--ink-faint); font-size: 10px; font-weight: 700; letter-spacing: .04em; }
+.runtime-card strong { display: block; margin-top: 8px; overflow: hidden; color: var(--ink); font-size: 13px; text-overflow: ellipsis; white-space: nowrap; }
+.runtime-endpoint { display: block; margin-top: 3px; overflow: hidden; color: var(--ink-faint); text-overflow: ellipsis; font: 9px/1.4 var(--mono); white-space: nowrap; }
+.runtime-details { display: grid; grid-template-columns: 1fr 1fr; gap: 9px 12px; margin: 13px 0 0; padding: 12px 0 0; border-top: 1px solid var(--line); }
+.runtime-details div { min-width: 0; }
+.runtime-details dt { color: var(--ink-faint); font-size: 9px; line-height: 1.2; }
+.runtime-details dd { margin: 3px 0 0; overflow: hidden; color: var(--ink); font: 11px/1.25 var(--mono); text-overflow: ellipsis; white-space: nowrap; }
 
 .workspace {
   display: grid;
@@ -419,8 +418,9 @@ svg {
 
 .empty-state { padding: clamp(32px, 8vh, 88px) 0 20px; }
 .empty-symbol { width: 44px; height: 44px; margin-bottom: 28px; color: var(--brand); }
-.empty-symbol svg path:first-child { fill: var(--accent-soft); stroke: var(--accent); }
-.empty-symbol svg path:last-child { fill: var(--brand); stroke: none; }
+.empty-symbol svg { width: 100%; height: 100%; }
+.empty-symbol .brand-mark-node { fill: var(--surface); }
+.empty-symbol .brand-mark-focus { stroke: var(--surface); }
 .empty-state h2 { max-width: 620px; margin: 8px 0 10px; font-size: clamp(27px, 3.3vw, 39px); font-weight: 580; letter-spacing: -0.035em; line-height: 1.18; }
 .empty-copy { max-width: 590px; margin: 0; color: var(--ink-soft); font-size: 14px; line-height: 1.75; }
 

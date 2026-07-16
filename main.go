@@ -136,7 +136,15 @@ func main() {
 		log.Fatalf("create agent: %v", err)
 	}
 	launcherConfig := &launcher.Config{AgentLoader: agent.NewSingleLoader(rootAgent)}
-	l := universal.NewLauncher(console.NewLauncher(), webapp.NewLauncher(titleModel, skillsResult.Skills))
+	runtimeInfo := webapp.RuntimeInfo{
+		BaseURL:         cfg.BaseURL,
+		ModelName:       cfg.ModelName,
+		ContextWindow:   cfg.ContextWindow,
+		MaxTokens:       cfg.MaxTokens,
+		ThinkingMode:    cfg.ThinkingMode,
+		ReasoningEffort: cfg.ReasoningEffort,
+	}
+	l := universal.NewLauncher(console.NewLauncher(), webapp.NewLauncher(titleModel, skillsResult.Skills, runtimeInfo))
 	if err := l.Execute(ctx, launcherConfig, os.Args[1:]); err != nil {
 		log.Fatalf("run failed: %v\n\n%s", err, l.CommandLineSyntax())
 	}

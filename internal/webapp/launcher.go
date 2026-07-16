@@ -42,15 +42,27 @@ type config struct {
 	sessionDB       string
 }
 
+// RuntimeInfo is the non-sensitive model configuration shown by the workbench.
+// It intentionally excludes credentials and provider request headers.
+type RuntimeInfo struct {
+	BaseURL         string `json:"baseUrl"`
+	ModelName       string `json:"modelName"`
+	ContextWindow   int64  `json:"contextWindow"`
+	MaxTokens       int64  `json:"maxTokens"`
+	ThinkingMode    string `json:"thinkingMode"`
+	ReasoningEffort string `json:"reasoningEffort"`
+}
+
 type webLauncher struct {
 	flags          *flag.FlagSet
 	config         *config
 	titleGenerator titleGenerator
 	skills         []skillsruntime.Summary
+	runtimeInfo    RuntimeInfo
 }
 
 // NewLauncher returns a launcher that serves the custom UI at / and ADK at /api.
-func NewLauncher(titleModel model.LLM, skills []skillsruntime.Summary) launcher.SubLauncher {
+func NewLauncher(titleModel model.LLM, skills []skillsruntime.Summary, runtimeInfo RuntimeInfo) launcher.SubLauncher {
 	cfg := &config{}
 	flags := flag.NewFlagSet("web", flag.ContinueOnError)
 	flags.IntVar(&cfg.port, "port", 8080, "Localhost port for the web app")
@@ -65,6 +77,7 @@ func NewLauncher(titleModel model.LLM, skills []skillsruntime.Summary) launcher.
 		config:         cfg,
 		titleGenerator: newLLMTitleGenerator(titleModel),
 		skills:         append([]skillsruntime.Summary(nil), skills...),
+		runtimeInfo:    runtimeInfo,
 	}
 }
 
@@ -89,7 +102,7 @@ func (w *webLauncher) Run(ctx context.Context, cfg *launcher.Config) error {
 	if err := configureSessionService(cfg, w.config.sessionDB); err != nil {
 		return err
 	}
-	handler, err := newHandler(cfg, w.config, w.titleGenerator, w.skills)
+	handler, err := newHandler(cfg, w.config, w.titleGenerator, w.skills, w.runtimeInfo)
 	if err != nil {
 		return err
 	}
@@ -188,7 +201,7 @@ func (w *webLauncher) SimpleDescription() string {
 	return "starts the fixed project web workbench and ADK REST API"
 }
 
-func newHandler(cfg *launcher.Config, webCfg *config, titleGenerator titleGenerator, skills []skillsruntime.Summary) (http.Handler, error) {
+func newHandler(cfg *launcher.Config, webCfg *config, titleGenerator titleGenerator, skills []skillsruntime.Summary, runtimeInfo RuntimeInfo) (http.Handler, error) {
 	if cfg.SessionService == nil {
 		cfg.SessionService = session.InMemoryService()
 	}
@@ -222,12 +235,23 @@ func newHandler(cfg *launcher.Config, webCfg *config, titleGenerator titleGenera
 		sessionTitleHandler(cfg.SessionService, titleGenerator),
 	).Methods(http.MethodPost)
 	router.HandleFunc("/api/project-skills", projectSkillsHandler(skills)).Methods(http.MethodGet)
+	router.HandleFunc("/api/runtime-info", runtimeInfoHandler(runtimeInfo)).Methods(http.MethodGet)
 	router.PathPrefix("/api/").Handler(http.StripPrefix("/api", restServer))
 	router.Handle("/api", http.StripPrefix("/api", restServer))
 	router.PathPrefix("/assets/").Handler(http.StripPrefix("/assets/", http.FileServer(http.FS(assets)))).Methods(http.MethodGet)
 	router.HandleFunc("/favicon.svg", serveAsset(assets, "favicon.svg", "image/svg+xml")).Methods(http.MethodGet)
 	router.HandleFunc("/", serveAsset(assets, "index.html", "text/html; charset=utf-8")).Methods(http.MethodGet)
 	return securityHeaders(router), nil
+}
+
+func runtimeInfoHandler(info RuntimeInfo) http.HandlerFunc {
+	return func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		w.Header().Set("Cache-Control", "no-store")
+		if err := json.NewEncoder(w).Encode(info); err != nil {
+			http.Error(w, "encode runtime information", http.StatusInternalServerError)
+		}
+	}
 }
 
 func projectSkillsHandler(skills []skillsruntime.Summary) http.HandlerFunc {
