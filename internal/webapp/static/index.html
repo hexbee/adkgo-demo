@@ -200,6 +200,20 @@
     </form>
   </dialog>
 
+  <dialog class="confirm-dialog" id="discard-draft-dialog">
+    <form method="dialog">
+      <div class="dialog-icon draft" aria-hidden="true">
+        <svg viewBox="0 0 24 24"><path d="M5 5h14v14H5zM8 9h8m-8 3h6"/></svg>
+      </div>
+      <h2>放弃未发送的内容？</h2>
+      <p>当前输入还没有发送。新建任务后，这些内容将无法恢复。</p>
+      <div class="dialog-actions">
+        <button class="secondary-button" value="cancel">继续编辑</button>
+        <button class="danger-button" id="confirm-discard-draft" value="confirm">放弃并新建</button>
+      </div>
+    </form>
+  </dialog>
+
   <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
   <script src="/assets/vendor/katex/katex.min.js" defer></script>
   <script src="/assets/vendor/katex/contrib/auto-render.min.js" defer></script>

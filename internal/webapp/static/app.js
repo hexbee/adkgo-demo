@@ -42,6 +42,7 @@ const els = {
   runtimeThinking: $("#runtime-thinking"),
   runtimeReasoningEffort: $("#runtime-reasoning-effort"),
   deleteDialog: $("#delete-dialog"),
+  discardDraftDialog: $("#discard-draft-dialog"),
   toast: $("#toast"),
 };
 
@@ -205,6 +206,15 @@ function startDraft() {
   renderAll({ forceFollow: true });
   closeSidebar();
   requestAnimationFrame(() => els.input.focus());
+}
+
+function requestNewDraft() {
+  if (state.running) return;
+  if (!editorText().trim()) {
+    startDraft();
+    return;
+  }
+  if (!els.discardDraftDialog.open) els.discardDraftDialog.showModal();
 }
 
 async function createUnpublishedSession() {
@@ -2084,10 +2094,10 @@ els.input.addEventListener("keydown", (event) => {
     els.form.requestSubmit();
   }
 });
-els.newSession.addEventListener("click", startDraft);
+els.newSession.addEventListener("click", requestNewDraft);
 els.brandHome.addEventListener("click", (event) => {
   event.preventDefault();
-  startDraft();
+  requestNewDraft();
 });
 els.stopRun.addEventListener("click", () => state.controller?.abort());
 els.toggleInspector.addEventListener("click", () => openInspector(!state.inspectorOpen));
@@ -2153,10 +2163,18 @@ els.deleteDialog.addEventListener("close", () => {
   state.pendingDeleteId = "";
 });
 
+els.discardDraftDialog.addEventListener("close", () => {
+  if (els.discardDraftDialog.returnValue === "confirm") {
+    startDraft();
+    return;
+  }
+  requestAnimationFrame(() => els.input.focus());
+});
+
 window.addEventListener("keydown", (event) => {
   if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
     event.preventDefault();
-    if (!state.running) startDraft();
+    if (!state.running) requestNewDraft();
   }
   if (event.key === "Escape") { closeSidebar(); openInspector(false); }
 });

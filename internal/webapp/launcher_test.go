@@ -323,6 +323,11 @@ func TestHandlerServesWorkbenchWithSecurityHeaders(t *testing.T) {
 			t.Fatalf("web app body missing Skill composer marker %q", marker)
 		}
 	}
+	for _, marker := range []string{`id="discard-draft-dialog"`, "放弃未发送的内容？", "继续编辑", "放弃并新建"} {
+		if !strings.Contains(recorder.Body.String(), marker) {
+			t.Fatalf("web app body missing draft protection marker %q", marker)
+		}
+	}
 	if strings.Count(recorder.Body.String(), `class="brand-mark-links"`) != 2 {
 		t.Fatal("workbench must use the Agent Work mark in both the sidebar and empty state")
 	}
@@ -492,10 +497,12 @@ func TestHandlerServesEmbeddedAssets(t *testing.T) {
 		"thinkingModeLabel",
 		"reasoningEffortLabel",
 		"startDraft",
+		"requestNewDraft",
 		"createUnpublishedSession",
 		"publishCurrentSession",
 		"discardUnpublishedSession",
 		`els.brandHome.addEventListener("click"`,
+		`els.discardDraftDialog.addEventListener("close"`,
 		`api("/project-skills")`,
 		"findSkillTrigger",
 		"createSkillMention",
