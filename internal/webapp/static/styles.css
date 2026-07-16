@@ -357,6 +357,8 @@ svg {
 .run-state { gap: 7px; color: var(--ink-soft); font-size: 12px; }
 .run-state > span { width: 7px; height: 7px; border-radius: 50%; background: #6f7772; }
 .run-state.running > span { background: var(--accent); animation: pulse 1.2s ease-in-out infinite; }
+.run-state.pending { color: var(--warning); }
+.run-state.pending > span { background: var(--warning); }
 .run-state.error > span { background: var(--danger); }
 
 .activity-button {

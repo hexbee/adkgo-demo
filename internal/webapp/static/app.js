@@ -340,6 +340,7 @@ function renderMessages({ forceFollow = false } = {}) {
     .map((detail) => detail.dataset.disclosureId));
   els.emptyState.hidden = hasMessages;
   els.messageList.hidden = !hasMessages;
+  updateRunState();
   if (!hasMessages) {
     els.messageList.innerHTML = "";
     return;
@@ -522,11 +523,12 @@ function renderActivity(activity, messageId, confirmationMode = "confirm") {
 }
 
 function renderInspector() {
+  const runStatus = currentRunStatus();
   els.inspector.hidden = !state.inspectorOpen;
   els.shell.classList.toggle("inspector-open", state.inspectorOpen);
   els.toggleInspector.setAttribute("aria-expanded", String(state.inspectorOpen));
   els.activityCount.textContent = String(state.timeline.length);
-  els.inspectorStatus.textContent = state.running ? "执行中" : "就绪";
+  els.inspectorStatus.textContent = runStatus.label;
   els.inspectorSession.textContent = state.currentSession?.id || "—";
   els.inspectorEvents.textContent = String(state.timeline.length);
   if (!state.timeline.length) {
@@ -845,13 +847,28 @@ function setRunning(running) {
   if (running) setConfirmationModeMenu(false);
   els.progressNote.hidden = !running;
   els.progressText.textContent = "Agent 正在处理";
-  els.runState.className = `run-state${running ? " running" : ""}`;
-  els.runState.innerHTML = `<span></span>${running ? "执行中" : "就绪"}`;
+  updateRunState();
   for (const message of state.messages) {
     if (!running && message.streaming) message.streaming = false;
   }
   updateComposer();
   renderInspector();
+}
+
+function currentRunStatus() {
+  if (state.running) return { label: "执行中", className: "running", visible: true };
+  const waiting = state.messages.some((message) => message.executionItems.some(
+    (item) => item.type === "approval" && item.status === "pending",
+  ));
+  if (waiting) return { label: "等待确认", className: "pending", visible: true };
+  return { label: "就绪", className: "", visible: false };
+}
+
+function updateRunState() {
+  const status = currentRunStatus();
+  els.runState.hidden = !status.visible;
+  els.runState.className = `run-state${status.className ? ` ${status.className}` : ""}`;
+  els.runState.innerHTML = `<span></span>${status.label}`;
 }
 
 function setConnection(status) {

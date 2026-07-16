@@ -291,6 +291,11 @@ func TestHandlerServesWorkbenchWithSecurityHeaders(t *testing.T) {
 			t.Fatalf("web app body missing one-shot execution mode marker %q", marker)
 		}
 	}
+	for _, marker := range []string{`id="run-state"`, `role="status"`, `aria-live="polite"`, `hidden><span></span>执行中`} {
+		if !strings.Contains(recorder.Body.String(), marker) {
+			t.Fatalf("web app body missing contextual run-state marker %q", marker)
+		}
+	}
 	for _, marker := range []string{`id="skill-picker"`, `contenteditable="true"`, "输入 $ 调用 Skill"} {
 		if !strings.Contains(recorder.Body.String(), marker) {
 			t.Fatalf("web app body missing Skill composer marker %q", marker)
