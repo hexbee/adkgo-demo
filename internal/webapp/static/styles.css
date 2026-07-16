@@ -499,11 +499,17 @@ svg {
 .message-content pre { margin: 14px 0; padding: 14px 16px; border: 1px solid #30413b; border-radius: var(--radius-md); background: #1e2925; color: #f0eee8; overflow-x: auto; }
 .message-content pre code { padding: 0; background: none; color: inherit; }
 .message-code-block { margin: 14px 0; border: 1px solid #30413b; border-radius: var(--radius-md); background: #1e2925; overflow: hidden; }
-.message-code-heading { display: flex; min-height: 30px; align-items: center; padding: 0 12px; border-bottom: 1px solid rgb(255 255 255 / 8%); background: #26342f; }
-.message-code-heading span { color: #aebbb5; font: 9px/1 var(--mono); }
+.message-code-heading { display: flex; min-height: 32px; align-items: center; justify-content: space-between; gap: 12px; padding: 0 8px 0 12px; border-bottom: 1px solid rgb(255 255 255 / 8%); background: #26342f; }
+.message-code-heading > span { color: #aebbb5; font: 9px/1 var(--mono); }
+.message-code-copy { display: inline-flex; min-height: 25px; align-items: center; gap: 5px; padding: 0 6px; border: 0; border-radius: 5px; background: transparent; color: #aebbb5; font: 9px/1 var(--mono); cursor: pointer; }
+.message-code-copy:hover:not(:disabled) { background: rgb(255 255 255 / 8%); color: #f0eee8; }
+.message-code-copy:disabled { cursor: default; opacity: .58; }
+.message-code-copy.copied { color: #b8dfca; }
+.message-code-copy-icon { display: inline-grid; width: 14px; height: 14px; place-items: center; }
+.message-code-copy-icon svg { width: 14px; height: 14px; }
 .message-code-block pre { margin: 0; border: 0; border-radius: 0; }
 .message-code-block pre code.hljs { display: block; padding: 0; background: transparent; }
-.message-code-block.streaming .message-code-heading::after { content: "正在生成"; margin-left: auto; color: #89968f; font-size: 9px; }
+.message-code-block.streaming .message-code-copy { color: #89968f; }
 .message-mermaid {
   margin: 16px 0 18px;
   border: 1px solid var(--line);

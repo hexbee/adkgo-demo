@@ -1229,6 +1229,32 @@ async function copyAssistantReply(messageId, button) {
   }
 }
 
+async function copyCodeBlock(button) {
+  const code = button.closest(".message-code-block")?.querySelector("pre code");
+  if (!code || button.disabled) return;
+  const icon = button.querySelector("[data-copy-code-icon]");
+  const label = button.querySelector("[data-copy-code-label]");
+  button.disabled = true;
+  try {
+    await writeClipboardText(code.textContent || "");
+    button.classList.add("copied");
+    if (icon) icon.innerHTML = icons.check;
+    if (label) label.textContent = "已复制";
+    button.setAttribute("aria-label", "代码已复制");
+    window.setTimeout(() => {
+      if (!button.isConnected) return;
+      button.classList.remove("copied");
+      if (icon) icon.innerHTML = icons.copy;
+      if (label) label.textContent = "复制";
+      button.setAttribute("aria-label", "复制代码");
+    }, 1600);
+  } catch (_) {
+    showToast("复制代码失败，请重试");
+  } finally {
+    button.disabled = false;
+  }
+}
+
 async function writeClipboardText(text) {
   if (navigator.clipboard?.writeText) {
     try {
@@ -1358,9 +1384,16 @@ function renderCodeBlock(segment, blockKey = "code", { deferMermaid = false } = 
   if (sourceLanguage === "mermaid" && !segment.unclosed) return renderMermaidBlock(segment, blockKey, { deferred: deferMermaid });
   const language = codeLanguageInfo(segment.language);
   return `<div class="message-code-block${segment.unclosed ? " streaming" : ""}">
-    <div class="message-code-heading"><span>${escapeHTML(language.label)}</span></div>
+    <div class="message-code-heading"><span>${escapeHTML(language.label)}</span>${renderCodeCopyButton({ disabled: segment.unclosed })}</div>
     <pre><code class="language-${escapeAttr(language.id)}" data-code-language="${escapeAttr(language.id)}">${escapeHTML(segment.text)}</code></pre>
   </div>`;
+}
+
+function renderCodeCopyButton({ disabled = false } = {}) {
+  const label = disabled ? "生成中" : "复制";
+  return `<button class="message-code-copy" type="button" data-copy-code aria-label="${disabled ? "代码生成中" : "复制代码"}"${disabled ? " disabled" : ""}>
+    <span class="message-code-copy-icon" data-copy-code-icon>${icons.copy}</span><span data-copy-code-label>${label}</span>
+  </button>`;
 }
 
 function renderMermaidBlock(segment, blockKey, { deferred = false, receiving = false } = {}) {
@@ -1378,7 +1411,7 @@ function renderMermaidBlock(segment, blockKey, { deferred = false, receiving = f
     <details class="message-mermaid-source" data-disclosure-id="${escapeAttr(disclosureId)}">
       <summary><span>查看 Mermaid 源码</span><small>${lineCount} 行</small><span class="mermaid-source-chevron" aria-hidden="true"></span></summary>
       <div class="message-code-block mermaid-source-code">
-        <div class="message-code-heading"><span>mermaid</span></div>
+        <div class="message-code-heading"><span>mermaid</span>${renderCodeCopyButton({ disabled: receiving })}</div>
         <pre><code class="language-plaintext" data-code-language="plaintext" data-mermaid-source>${escapeHTML(source)}</code></pre>
       </div>
     </details>
@@ -1973,6 +2006,11 @@ els.sessionList.addEventListener("click", (event) => {
 });
 
 els.messageList.addEventListener("click", (event) => {
+  const copyCode = event.target.closest("[data-copy-code]");
+  if (copyCode) {
+    copyCodeBlock(copyCode);
+    return;
+  }
   const copyReply = event.target.closest("[data-copy-reply]");
   if (copyReply) {
     const messageElement = copyReply.closest("[data-message-id]");

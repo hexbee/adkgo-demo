@@ -406,9 +406,12 @@ func TestHandlerServesEmbeddedAssets(t *testing.T) {
 		"message-inline-image",
 		"referrerpolicy=\"no-referrer\"",
 		"copyAssistantReply",
+		"copyCodeBlock",
+		"renderCodeCopyButton",
 		"writeClipboardText",
 		"navigator.clipboard.writeText",
 		"data-copy-reply",
+		"data-copy-code",
 		"parseMarkdownSegments",
 		"compactRepeatedMermaidSegments",
 		"isRepeatedCodeSeparator",
@@ -631,7 +634,7 @@ func TestCodeHighlightStylesAreEmbedded(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read embedded styles: %v", err)
 	}
-	for _, rule := range []string{".message-code-block {", ".message-code-heading {", ".message-code-block pre code.hljs", ".message-code-block.streaming"} {
+	for _, rule := range []string{".message-code-block {", ".message-code-heading {", ".message-code-copy {", ".message-code-copy.copied", ".message-code-block pre code.hljs", ".message-code-block.streaming"} {
 		if !strings.Contains(string(styles), rule) {
 			t.Fatalf("styles.css missing code highlight rule %q", rule)
 		}
