@@ -272,7 +272,7 @@ func testHandler(t *testing.T) http.Handler {
 	}, RuntimeInfo{
 		BaseURL: "https://api.deepseek.com/v1", ModelName: "deepseek-v4-flash",
 		ContextWindow: 1000000, MaxTokens: 384000, ThinkingMode: "enabled", ReasoningEffort: "high",
-	})
+	}, "Be concise and helpful.")
 	if err != nil {
 		t.Fatalf("newHandler: %v", err)
 	}
@@ -295,6 +295,27 @@ func TestHandlerServesRuntimeInfoWithoutCredentials(t *testing.T) {
 	}
 	if strings.Contains(strings.ToLower(recorder.Body.String()), "api_key") || strings.Contains(strings.ToLower(recorder.Body.String()), "apikey") {
 		t.Fatalf("runtime info exposes credential field: %s", recorder.Body.String())
+	}
+}
+
+func TestHandlerServesSystemPrompt(t *testing.T) {
+	recorder := httptest.NewRecorder()
+	testHandler(t).ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/api/system-prompt", nil))
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", recorder.Code, http.StatusOK)
+	}
+	if got := recorder.Header().Get("Cache-Control"); got != "no-store" {
+		t.Fatalf("Cache-Control = %q, want no-store", got)
+	}
+	var got struct {
+		Content string `json:"content"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &got); err != nil {
+		t.Fatalf("decode system prompt: %v", err)
+	}
+	if got.Content != "Be concise and helpful." {
+		t.Fatalf("system prompt = %q", got.Content)
 	}
 }
 
@@ -342,6 +363,11 @@ func TestHandlerServesWorkbenchWithSecurityHeaders(t *testing.T) {
 	for _, marker := range []string{`id="runtime-model"`, `id="runtime-base-url"`, `id="runtime-context"`, `id="runtime-max-output"`, `id="runtime-thinking"`, `id="runtime-reasoning-effort"`, "推理强度"} {
 		if !strings.Contains(recorder.Body.String(), marker) {
 			t.Fatalf("web app body missing runtime information marker %q", marker)
+		}
+	}
+	for _, marker := range []string{`id="open-system-prompt"`, `id="system-prompt-dialog"`, `id="system-prompt-content"`, "系统提示词"} {
+		if !strings.Contains(recorder.Body.String(), marker) {
+			t.Fatalf("web app body missing system prompt marker %q", marker)
 		}
 	}
 	for _, marker := range []string{"/assets/vendor/katex/katex.min.css", "/assets/vendor/katex/katex.min.js", "/assets/vendor/katex/contrib/auto-render.min.js"} {
@@ -768,7 +794,7 @@ func TestLayoutPinsConversationAndComposerToDedicatedGridRows(t *testing.T) {
 }
 
 func TestLauncherParsesWebFlags(t *testing.T) {
-	launcher := NewLauncher(nil, nil, RuntimeInfo{})
+	launcher := NewLauncher(nil, nil, RuntimeInfo{}, "")
 	rest, err := launcher.Parse([]string{"--port", "9000", "extra"})
 	if err != nil {
 		t.Fatalf("Parse: %v", err)

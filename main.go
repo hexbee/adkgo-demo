@@ -144,7 +144,7 @@ func main() {
 		ThinkingMode:    cfg.ThinkingMode,
 		ReasoningEffort: cfg.ReasoningEffort,
 	}
-	l := universal.NewLauncher(console.NewLauncher(), webapp.NewLauncher(titleModel, skillsResult.Skills, runtimeInfo))
+	l := universal.NewLauncher(console.NewLauncher(), webapp.NewLauncher(titleModel, skillsResult.Skills, runtimeInfo, agentInstruction))
 	if err := l.Execute(ctx, launcherConfig, os.Args[1:]); err != nil {
 		log.Fatalf("run failed: %v\n\n%s", err, l.CommandLineSyntax())
 	}

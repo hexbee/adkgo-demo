@@ -70,9 +70,13 @@
         </div>
         <div class="topbar-actions">
           <span class="run-state" id="run-state" role="status" aria-live="polite" hidden><span></span>执行中</span>
+          <button class="activity-button system-prompt-button" id="open-system-prompt" type="button" aria-haspopup="dialog" aria-controls="system-prompt-dialog">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 3.5h9l3 3V20.5H6zM15 3.5v3h3M9 11h6m-6 3h6m-6 3h4"/></svg>
+            <span>系统提示词</span>
+          </button>
           <button class="activity-button" id="toggle-inspector" type="button" aria-expanded="false" aria-controls="inspector">
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 19V9m7 10V5m7 14v-7"/></svg>
-            执行记录
+            <span>执行记录</span>
             <span class="activity-count" id="activity-count">0</span>
           </button>
         </div>
@@ -210,6 +214,36 @@
       <div class="dialog-actions">
         <button class="secondary-button" value="cancel">继续编辑</button>
         <button class="danger-button" id="confirm-discard-draft" value="confirm">放弃并新建</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog class="system-prompt-dialog" id="system-prompt-dialog" aria-labelledby="system-prompt-heading" aria-describedby="system-prompt-description">
+    <form method="dialog">
+      <header class="system-prompt-header">
+        <div>
+          <span class="eyebrow">AGENT CONFIGURATION</span>
+          <h2 id="system-prompt-heading">系统提示词</h2>
+        </div>
+        <button class="icon-button" value="close" aria-label="关闭系统提示词">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m7 7 10 10M17 7 7 17"/></svg>
+        </button>
+      </header>
+      <p class="system-prompt-description" id="system-prompt-description">当前 Agent 启动时使用的基础指令。Skill 和工具等运行时上下文可能按需附加。</p>
+      <div class="system-prompt-view">
+        <pre><code id="system-prompt-content">正在加载…</code></pre>
+        <div class="system-prompt-error" id="system-prompt-error" role="alert" hidden>
+          <strong>无法加载系统提示词</strong>
+          <span id="system-prompt-error-detail">请确认服务仍在运行。</span>
+          <button class="text-button" id="retry-system-prompt" type="button">重新加载</button>
+        </div>
+      </div>
+      <div class="dialog-actions">
+        <button class="secondary-button" value="close">关闭</button>
+        <button class="primary-button" id="copy-system-prompt" type="button" disabled>
+          <span class="button-icon" id="copy-system-prompt-icon" aria-hidden="true"></span>
+          <span id="copy-system-prompt-label">复制提示词</span>
+        </button>
       </div>
     </form>
   </dialog>

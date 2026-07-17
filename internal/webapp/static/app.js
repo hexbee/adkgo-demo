@@ -43,6 +43,15 @@ const els = {
   runtimeMaxOutput: $("#runtime-max-output"),
   runtimeThinking: $("#runtime-thinking"),
   runtimeReasoningEffort: $("#runtime-reasoning-effort"),
+  openSystemPrompt: $("#open-system-prompt"),
+  systemPromptDialog: $("#system-prompt-dialog"),
+  systemPromptContent: $("#system-prompt-content"),
+  systemPromptError: $("#system-prompt-error"),
+  systemPromptErrorDetail: $("#system-prompt-error-detail"),
+  retrySystemPrompt: $("#retry-system-prompt"),
+  copySystemPrompt: $("#copy-system-prompt"),
+  copySystemPromptIcon: $("#copy-system-prompt-icon"),
+  copySystemPromptLabel: $("#copy-system-prompt-label"),
   deleteDialog: $("#delete-dialog"),
   discardDraftDialog: $("#discard-draft-dialog"),
   toast: $("#toast"),
@@ -74,6 +83,9 @@ const state = {
   titleRequests: new Set(),
   skills: [],
   skillsError: "",
+  systemPrompt: null,
+  systemPromptLoading: false,
+  systemPromptCopyTimer: null,
   skillMatches: [],
   skillActiveIndex: 0,
   skillTriggerRange: null,
@@ -147,6 +159,56 @@ async function loadRuntimeInfo() {
   els.runtimeMaxOutput.textContent = formatTokenCount(info.maxTokens);
   els.runtimeThinking.textContent = thinkingModeLabel(info.thinkingMode);
   els.runtimeReasoningEffort.textContent = reasoningEffortLabel(info.reasoningEffort);
+}
+
+async function openSystemPrompt() {
+  if (!els.systemPromptDialog.open) els.systemPromptDialog.showModal();
+  if (state.systemPrompt !== null || state.systemPromptLoading) return;
+  await loadSystemPrompt();
+}
+
+async function loadSystemPrompt() {
+  state.systemPromptLoading = true;
+  els.systemPromptContent.textContent = "正在加载…";
+  els.systemPromptContent.closest("pre").hidden = false;
+  els.systemPromptError.hidden = true;
+  els.copySystemPrompt.disabled = true;
+  try {
+    const response = await api("/system-prompt");
+    if (typeof response?.content !== "string") throw new Error("服务返回了无效的系统提示词");
+    state.systemPrompt = response.content;
+    els.systemPromptContent.textContent = response.content || "（未配置系统提示词）";
+    els.copySystemPrompt.disabled = response.content.length === 0;
+  } catch (error) {
+    els.systemPromptContent.closest("pre").hidden = true;
+    els.systemPromptErrorDetail.textContent = friendlyError(error);
+    els.systemPromptError.hidden = false;
+  } finally {
+    state.systemPromptLoading = false;
+  }
+}
+
+async function copySystemPrompt() {
+  if (!state.systemPrompt || els.copySystemPrompt.disabled) return;
+  els.copySystemPrompt.disabled = true;
+  try {
+    await writeClipboardText(state.systemPrompt);
+    els.copySystemPrompt.classList.add("copied");
+    els.copySystemPromptIcon.innerHTML = icons.check;
+    els.copySystemPromptLabel.textContent = "已复制";
+    window.clearTimeout(state.systemPromptCopyTimer);
+    state.systemPromptCopyTimer = window.setTimeout(resetSystemPromptCopyButton, 1600);
+  } catch (_) {
+    showToast("复制提示词失败，请重试");
+  } finally {
+    els.copySystemPrompt.disabled = false;
+  }
+}
+
+function resetSystemPromptCopyButton() {
+  els.copySystemPrompt.classList.remove("copied");
+  els.copySystemPromptIcon.innerHTML = icons.copy;
+  els.copySystemPromptLabel.textContent = "复制提示词";
 }
 
 function formatTokenCount(value) {
@@ -2140,6 +2202,10 @@ els.brandHome.addEventListener("click", (event) => {
 });
 els.stopRun.addEventListener("click", () => state.controller?.abort());
 els.toggleInspector.addEventListener("click", () => openInspector(!state.inspectorOpen));
+els.openSystemPrompt.addEventListener("click", openSystemPrompt);
+els.retrySystemPrompt.addEventListener("click", loadSystemPrompt);
+els.copySystemPrompt.addEventListener("click", copySystemPrompt);
+els.systemPromptDialog.addEventListener("close", resetSystemPromptCopyButton);
 $("#close-inspector").addEventListener("click", () => openInspector(false));
 els.openSidebar.addEventListener("click", openSidebar);
 els.closeSidebar.addEventListener("click", () => {
@@ -2223,5 +2289,6 @@ window.addEventListener("keydown", (event) => {
 window.addEventListener("resize", handleViewportResize);
 
 setSidebarCollapsed(state.sidebarCollapsed);
+resetSystemPromptCopyButton();
 requestAnimationFrame(() => els.shell.classList.add("sidebar-ready"));
 bootstrap();
