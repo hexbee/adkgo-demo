@@ -18,6 +18,7 @@ import (
 
 	"github.com/glebarez/sqlite"
 	"github.com/gorilla/mux"
+	"github.com/hexbee/adkgo-demo/internal/mcpruntime"
 	"github.com/hexbee/adkgo-demo/internal/skillsruntime"
 	"google.golang.org/adk/v2/cmd/launcher"
 	"google.golang.org/adk/v2/model"
@@ -58,12 +59,13 @@ type webLauncher struct {
 	config         *config
 	titleGenerator titleGenerator
 	skills         []skillsruntime.Summary
+	mcpServers     []mcpruntime.ServerSummary
 	runtimeInfo    RuntimeInfo
 	systemPrompt   string
 }
 
 // NewLauncher returns a launcher that serves the custom UI at / and ADK at /api.
-func NewLauncher(titleModel model.LLM, skills []skillsruntime.Summary, runtimeInfo RuntimeInfo, systemPrompt string) launcher.SubLauncher {
+func NewLauncher(titleModel model.LLM, skills []skillsruntime.Summary, mcpServers []mcpruntime.ServerSummary, runtimeInfo RuntimeInfo, systemPrompt string) launcher.SubLauncher {
 	cfg := &config{}
 	flags := flag.NewFlagSet("web", flag.ContinueOnError)
 	flags.IntVar(&cfg.port, "port", 8080, "Localhost port for the web app")
@@ -78,6 +80,7 @@ func NewLauncher(titleModel model.LLM, skills []skillsruntime.Summary, runtimeIn
 		config:         cfg,
 		titleGenerator: newLLMTitleGenerator(titleModel),
 		skills:         append([]skillsruntime.Summary(nil), skills...),
+		mcpServers:     append([]mcpruntime.ServerSummary(nil), mcpServers...),
 		runtimeInfo:    runtimeInfo,
 		systemPrompt:   systemPrompt,
 	}
@@ -104,7 +107,7 @@ func (w *webLauncher) Run(ctx context.Context, cfg *launcher.Config) error {
 	if err := configureSessionService(cfg, w.config.sessionDB); err != nil {
 		return err
 	}
-	handler, err := newHandler(cfg, w.config, w.titleGenerator, w.skills, w.runtimeInfo, w.systemPrompt)
+	handler, err := newHandler(cfg, w.config, w.titleGenerator, w.skills, w.mcpServers, w.runtimeInfo, w.systemPrompt)
 	if err != nil {
 		return err
 	}
@@ -203,7 +206,7 @@ func (w *webLauncher) SimpleDescription() string {
 	return "starts the fixed project web workbench and ADK REST API"
 }
 
-func newHandler(cfg *launcher.Config, webCfg *config, titleGenerator titleGenerator, skills []skillsruntime.Summary, runtimeInfo RuntimeInfo, systemPrompt string) (http.Handler, error) {
+func newHandler(cfg *launcher.Config, webCfg *config, titleGenerator titleGenerator, skills []skillsruntime.Summary, mcpServers []mcpruntime.ServerSummary, runtimeInfo RuntimeInfo, systemPrompt string) (http.Handler, error) {
 	if cfg.SessionService == nil {
 		cfg.SessionService = session.InMemoryService()
 	}
@@ -237,6 +240,7 @@ func newHandler(cfg *launcher.Config, webCfg *config, titleGenerator titleGenera
 		sessionTitleHandler(cfg.SessionService, titleGenerator),
 	).Methods(http.MethodPost)
 	router.HandleFunc("/api/project-skills", projectSkillsHandler(skills)).Methods(http.MethodGet)
+	router.HandleFunc("/api/mcp-servers", mcpServersHandler(mcpServers)).Methods(http.MethodGet)
 	router.HandleFunc("/api/runtime-info", runtimeInfoHandler(runtimeInfo)).Methods(http.MethodGet)
 	router.HandleFunc("/api/system-prompt", systemPromptHandler(systemPrompt)).Methods(http.MethodGet)
 	router.PathPrefix("/api/").Handler(http.StripPrefix("/api", restServer))
@@ -245,6 +249,20 @@ func newHandler(cfg *launcher.Config, webCfg *config, titleGenerator titleGenera
 	router.HandleFunc("/favicon.svg", serveAsset(assets, "favicon.svg", "image/svg+xml")).Methods(http.MethodGet)
 	router.HandleFunc("/", serveAsset(assets, "index.html", "text/html; charset=utf-8")).Methods(http.MethodGet)
 	return securityHeaders(router), nil
+}
+
+func mcpServersHandler(servers []mcpruntime.ServerSummary) http.HandlerFunc {
+	inventory := append([]mcpruntime.ServerSummary(nil), servers...)
+	if inventory == nil {
+		inventory = []mcpruntime.ServerSummary{}
+	}
+	return func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		w.Header().Set("Cache-Control", "no-store")
+		if err := json.NewEncoder(w).Encode(inventory); err != nil {
+			http.Error(w, "encode MCP server inventory", http.StatusInternalServerError)
+		}
+	}
 }
 
 func systemPromptHandler(prompt string) http.HandlerFunc {

@@ -52,6 +52,20 @@ const els = {
   copySystemPrompt: $("#copy-system-prompt"),
   copySystemPromptIcon: $("#copy-system-prompt-icon"),
   copySystemPromptLabel: $("#copy-system-prompt-label"),
+  configTabs: [...document.querySelectorAll("[data-config-tab]")],
+  configPanels: [...document.querySelectorAll("[data-config-panel]")],
+  mcpTabCount: $("#mcp-tab-count"),
+  mcpInventorySummary: $("#mcp-inventory-summary"),
+  mcpServerList: $("#mcp-server-list"),
+  mcpInventoryError: $("#mcp-inventory-error"),
+  mcpInventoryErrorDetail: $("#mcp-inventory-error-detail"),
+  retryMCPInventory: $("#retry-mcp-inventory"),
+  skillsTabCount: $("#skills-tab-count"),
+  skillsInventorySummary: $("#skills-inventory-summary"),
+  configSkillList: $("#config-skill-list"),
+  skillsInventoryError: $("#skills-inventory-error"),
+  skillsInventoryErrorDetail: $("#skills-inventory-error-detail"),
+  retryConfigSkills: $("#retry-config-skills"),
   deleteDialog: $("#delete-dialog"),
   discardDraftDialog: $("#discard-draft-dialog"),
   toast: $("#toast"),
@@ -86,6 +100,9 @@ const state = {
   systemPrompt: null,
   systemPromptLoading: false,
   systemPromptCopyTimer: null,
+  mcpServers: null,
+  mcpServersLoading: false,
+  activeConfigTab: "prompt",
   skillMatches: [],
   skillActiveIndex: 0,
   skillTriggerRange: null,
@@ -163,8 +180,11 @@ async function loadRuntimeInfo() {
 
 async function openSystemPrompt() {
   if (!els.systemPromptDialog.open) els.systemPromptDialog.showModal();
-  if (state.systemPrompt !== null || state.systemPromptLoading) return;
-  await loadSystemPrompt();
+  renderSkillsConfig();
+  const pending = [];
+  if (state.systemPrompt === null && !state.systemPromptLoading) pending.push(loadSystemPrompt());
+  if (state.mcpServers === null && !state.mcpServersLoading) pending.push(loadMCPServers());
+  await Promise.allSettled(pending);
 }
 
 async function loadSystemPrompt() {
@@ -211,6 +231,92 @@ function resetSystemPromptCopyButton() {
   els.copySystemPromptLabel.textContent = "复制提示词";
 }
 
+async function loadMCPServers() {
+  state.mcpServersLoading = true;
+  els.mcpServerList.innerHTML = '<div class="config-loading"><span class="spinner" aria-hidden="true"></span>正在读取 MCP Tools…</div>';
+  els.mcpServerList.hidden = false;
+  els.mcpInventoryError.hidden = true;
+  els.mcpInventorySummary.textContent = "正在读取工具清单…";
+  try {
+    const servers = await api("/mcp-servers");
+    if (!Array.isArray(servers)) throw new Error("服务返回了无效的 MCP 清单");
+    state.mcpServers = servers;
+    renderMCPInventory();
+  } catch (error) {
+    els.mcpServerList.hidden = true;
+    els.mcpInventorySummary.textContent = "清单加载失败";
+    els.mcpInventoryErrorDetail.textContent = friendlyError(error);
+    els.mcpInventoryError.hidden = false;
+  } finally {
+    state.mcpServersLoading = false;
+  }
+}
+
+function renderMCPInventory() {
+  const servers = Array.isArray(state.mcpServers) ? state.mcpServers : [];
+  const toolCount = servers.reduce((count, server) => count + (Array.isArray(server?.tools) ? server.tools.length : 0), 0);
+  const unavailableCount = servers.filter((server) => server?.status !== "ready").length;
+  els.mcpTabCount.textContent = String(servers.length);
+  els.mcpInventorySummary.textContent = servers.length
+    ? `${servers.length} 个 Server · ${toolCount} 个 Tool${unavailableCount ? ` · ${unavailableCount} 个不可用` : ""}`
+    : "当前未配置 MCP Server。";
+  if (!servers.length) {
+    els.mcpServerList.innerHTML = '<div class="config-empty"><strong>没有 MCP Server</strong><span>在项目根目录添加 .mcp.json 后，重启服务即可在这里查看。</span></div>';
+    return;
+  }
+  els.mcpServerList.innerHTML = servers.map((server, index) => renderMCPServer(server, index)).join("");
+}
+
+function renderMCPServer(server, index) {
+  const tools = Array.isArray(server?.tools) ? server.tools : [];
+  const ready = server?.status === "ready";
+  const toolLabel = `${tools.length} Tool${tools.length === 1 ? "" : "s"}`;
+  const body = ready
+    ? tools.length
+      ? `<ul class="mcp-tool-list">${tools.map((item) => `<li><strong>${escapeHTML(item?.name || "未命名 Tool")}</strong>${item?.description ? `<p>${escapeHTML(item.description)}</p>` : ""}</li>`).join("")}</ul>`
+      : '<div class="config-inline-empty">连接成功，但这个 Server 没有提供 Tool。</div>'
+    : '<div class="config-inline-error"><strong>工具发现失败</strong><span>Server 已配置，但启动时无法连接或读取工具列表。</span></div>';
+  return `<details class="mcp-server-card ${ready ? "ready" : "unavailable"}"${index === 0 ? " open" : ""}>
+    <summary>
+      <span class="resource-status" aria-label="${ready ? "可用" : "不可用"}"></span>
+      <span class="resource-identity"><strong>${escapeHTML(server?.name || "未命名 Server")}</strong><small>${escapeHTML(server?.target || "—")}</small></span>
+      <span class="resource-badges"><span>${escapeHTML(String(server?.type || "unknown").toUpperCase())}</span><span>${toolLabel}</span></span>
+      <span class="resource-chevron" aria-hidden="true"></span>
+    </summary>
+    <div class="mcp-server-body">${body}</div>
+  </details>`;
+}
+
+function renderSkillsConfig() {
+  const skills = Array.isArray(state.skills) ? state.skills : [];
+  els.skillsTabCount.textContent = String(skills.length);
+  els.skillsInventoryError.hidden = !state.skillsError;
+  els.configSkillList.hidden = Boolean(state.skillsError);
+  if (state.skillsError) {
+    els.skillsInventorySummary.textContent = "Skills 清单加载失败";
+    els.skillsInventoryErrorDetail.textContent = state.skillsError;
+    return;
+  }
+  els.skillsInventorySummary.textContent = skills.length
+    ? `${skills.length} 个 Skill 已从 .agents/skills 预加载。`
+    : "当前项目没有可用的 Skill。";
+  els.configSkillList.innerHTML = skills.length
+    ? skills.map((skill) => `<article class="skill-config-card"><span class="skill-config-icon">${icons.skill}</span><div><strong>$${escapeHTML(skill.name)}</strong><p>${escapeHTML(skill.description || "暂无说明")}</p></div></article>`).join("")
+    : '<div class="config-empty"><strong>没有项目 Skill</strong><span>在 .agents/skills 中添加 Skill 后，重启服务即可加载。</span></div>';
+}
+
+function selectConfigTab(name, focus = false) {
+  if (!els.configTabs.some((tab) => tab.dataset.configTab === name)) return;
+  state.activeConfigTab = name;
+  for (const tab of els.configTabs) {
+    const selected = tab.dataset.configTab === name;
+    tab.setAttribute("aria-selected", String(selected));
+    tab.tabIndex = selected ? 0 : -1;
+    if (selected && focus) tab.focus();
+  }
+  for (const panel of els.configPanels) panel.hidden = panel.dataset.configPanel !== name;
+}
+
 function formatTokenCount(value) {
   const count = Number(value);
   if (!Number.isFinite(count) || count <= 0) return "—";
@@ -241,6 +347,7 @@ async function loadSkillCatalog() {
     state.skills = [];
     state.skillsError = friendlyError(error);
   }
+  renderSkillsConfig();
 }
 
 async function loadSessions() {
@@ -2204,8 +2311,23 @@ els.stopRun.addEventListener("click", () => state.controller?.abort());
 els.toggleInspector.addEventListener("click", () => openInspector(!state.inspectorOpen));
 els.openSystemPrompt.addEventListener("click", openSystemPrompt);
 els.retrySystemPrompt.addEventListener("click", loadSystemPrompt);
+els.retryMCPInventory.addEventListener("click", loadMCPServers);
+els.retryConfigSkills.addEventListener("click", loadSkillCatalog);
 els.copySystemPrompt.addEventListener("click", copySystemPrompt);
 els.systemPromptDialog.addEventListener("close", resetSystemPromptCopyButton);
+for (const tab of els.configTabs) {
+  tab.addEventListener("click", () => selectConfigTab(tab.dataset.configTab));
+  tab.addEventListener("keydown", (event) => {
+    if (!["ArrowDown", "ArrowUp", "ArrowRight", "ArrowLeft", "Home", "End"].includes(event.key)) return;
+    event.preventDefault();
+    const current = els.configTabs.indexOf(tab);
+    const forward = event.key === "ArrowDown" || event.key === "ArrowRight";
+    const next = event.key === "Home" ? 0
+      : event.key === "End" ? els.configTabs.length - 1
+        : (current + (forward ? 1 : -1) + els.configTabs.length) % els.configTabs.length;
+    selectConfigTab(els.configTabs[next].dataset.configTab, true);
+  });
+}
 $("#close-inspector").addEventListener("click", () => openInspector(false));
 els.openSidebar.addEventListener("click", openSidebar);
 els.closeSidebar.addEventListener("click", () => {

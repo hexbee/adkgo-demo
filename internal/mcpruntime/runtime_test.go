@@ -96,6 +96,52 @@ type echoInput struct {
 	Text string `json:"text"`
 }
 
+type inventoryTool struct{ name, description string }
+
+func (t inventoryTool) Name() string        { return t.name }
+func (t inventoryTool) Description() string { return t.description }
+func (inventoryTool) IsLongRunning() bool   { return false }
+
+type inventoryToolset struct {
+	tools []tool.Tool
+	err   error
+}
+
+func (inventoryToolset) Name() string { return "inventory-test" }
+func (t inventoryToolset) Tools(agent.ReadonlyContext) ([]tool.Tool, error) {
+	return t.tools, t.err
+}
+
+func TestDiscoverReturnsSafePerServerToolInventory(t *testing.T) {
+	servers := []mcpconfig.Server{
+		{Name: "maps", Type: mcpconfig.TypeHTTP, URL: "https://user:pass@example.test/mcp?key=secret#fragment"},
+		{Name: "local", Type: mcpconfig.TypeStdio, Command: "secret-command", Args: []string{"secret-arg"}},
+	}
+	got := Discover(t.Context(), servers, []tool.Toolset{
+		inventoryToolset{tools: []tool.Tool{
+			inventoryTool{name: "zeta", description: "Last tool."},
+			inventoryTool{name: "alpha", description: "First tool."},
+		}},
+		inventoryToolset{err: errors.New("unavailable with secret-command")},
+	})
+
+	if len(got) != 2 {
+		t.Fatalf("inventory = %#v", got)
+	}
+	if got[0].Status != StatusReady || got[0].Target != "https://example.test/mcp" || len(got[0].Tools) != 2 || got[0].Tools[0].Name != "alpha" {
+		t.Fatalf("ready server = %#v", got[0])
+	}
+	if got[1].Status != StatusUnavailable || got[1].Target != "stdio" || len(got[1].Tools) != 0 {
+		t.Fatalf("unavailable server = %#v", got[1])
+	}
+	encoded := fmt.Sprintf("%#v", got)
+	for _, secret := range []string{"user:pass", "key=secret", "secret-command", "secret-arg"} {
+		if strings.Contains(encoded, secret) {
+			t.Fatalf("inventory exposes %q: %s", secret, encoded)
+		}
+	}
+}
+
 func newMCPServer(t *testing.T, calls *atomic.Int32, sawHeader *atomic.Bool) *httptest.Server {
 	t.Helper()
 	server := mcp.NewServer(&mcp.Implementation{Name: "test-server", Version: "1.0.0"}, nil)

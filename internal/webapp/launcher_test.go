@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/gorilla/mux"
+	"github.com/hexbee/adkgo-demo/internal/mcpruntime"
 	"github.com/hexbee/adkgo-demo/internal/skillsruntime"
 	"google.golang.org/adk/v2/agent"
 	"google.golang.org/adk/v2/cmd/launcher"
@@ -269,6 +270,11 @@ func testHandler(t *testing.T) http.Handler {
 	}, &config{sseWriteTimeout: time.Second, traceCapacity: 10}, nil, []skillsruntime.Summary{
 		{Name: "concise-writer", Description: "Make writing concise."},
 		{Name: "follow-builders-lite", Description: "Summarize AI builder news."},
+	}, []mcpruntime.ServerSummary{
+		{Name: "maps", Type: "http", Target: "https://example.test/mcp", Status: mcpruntime.StatusReady, Tools: []mcpruntime.ToolSummary{
+			{Name: "search_places", Description: "Search for places."},
+		}},
+		{Name: "local", Type: "stdio", Target: "stdio", Status: mcpruntime.StatusUnavailable, Tools: []mcpruntime.ToolSummary{}},
 	}, RuntimeInfo{
 		BaseURL: "https://api.deepseek.com/v1", ModelName: "deepseek-v4-flash",
 		ContextWindow: 1000000, MaxTokens: 384000, ThinkingMode: "enabled", ReasoningEffort: "high",
@@ -319,6 +325,27 @@ func TestHandlerServesSystemPrompt(t *testing.T) {
 	}
 }
 
+func TestHandlerServesMCPServerInventory(t *testing.T) {
+	recorder := httptest.NewRecorder()
+	testHandler(t).ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/api/mcp-servers", nil))
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", recorder.Code, http.StatusOK)
+	}
+	var got []mcpruntime.ServerSummary
+	if err := json.Unmarshal(recorder.Body.Bytes(), &got); err != nil {
+		t.Fatalf("decode MCP inventory: %v", err)
+	}
+	if len(got) != 2 || got[0].Name != "maps" || len(got[0].Tools) != 1 || got[0].Tools[0].Name != "search_places" || got[1].Status != mcpruntime.StatusUnavailable {
+		t.Fatalf("MCP inventory = %#v", got)
+	}
+	for _, forbidden := range []string{"Authorization", "API_KEY", "command", "args", "env"} {
+		if strings.Contains(recorder.Body.String(), forbidden) {
+			t.Fatalf("MCP inventory exposes forbidden field %q: %s", forbidden, recorder.Body.String())
+		}
+	}
+}
+
 func TestHandlerServesWorkbenchWithSecurityHeaders(t *testing.T) {
 	recorder := httptest.NewRecorder()
 	testHandler(t).ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/", nil))
@@ -365,7 +392,11 @@ func TestHandlerServesWorkbenchWithSecurityHeaders(t *testing.T) {
 			t.Fatalf("web app body missing runtime information marker %q", marker)
 		}
 	}
-	for _, marker := range []string{`id="open-system-prompt"`, `id="system-prompt-dialog"`, `id="system-prompt-content"`, "系统提示词"} {
+	for _, marker := range []string{
+		`id="open-system-prompt"`, `id="system-prompt-dialog"`, `id="system-prompt-content"`,
+		`role="tablist"`, `data-config-tab="mcp"`, `data-config-tab="skills"`,
+		`id="mcp-server-list"`, `id="config-skill-list"`, "Agent 配置", "系统提示词",
+	} {
 		if !strings.Contains(recorder.Body.String(), marker) {
 			t.Fatalf("web app body missing system prompt marker %q", marker)
 		}
@@ -538,6 +569,11 @@ func TestHandlerServesEmbeddedAssets(t *testing.T) {
 		`els.brandHome.addEventListener("click"`,
 		`els.discardDraftDialog.addEventListener("close"`,
 		`api("/project-skills")`,
+		`api("/mcp-servers")`,
+		"renderMCPInventory",
+		"renderMCPServer",
+		"renderSkillsConfig",
+		"selectConfigTab",
 		"findSkillTrigger",
 		"createSkillMention",
 		"deleteAdjacentSkill",
@@ -591,6 +627,25 @@ func TestSkillComposerStylesAreEmbedded(t *testing.T) {
 	} {
 		if !strings.Contains(string(styles), rule) {
 			t.Fatalf("styles.css missing Skill composer rule %q", rule)
+		}
+	}
+}
+
+func TestAgentConfigInventoryStylesAreEmbedded(t *testing.T) {
+	styles, err := staticFiles.ReadFile("static/styles.css")
+	if err != nil {
+		t.Fatalf("read embedded styles: %v", err)
+	}
+	for _, rule := range []string{
+		".agent-config-body {",
+		".config-tabs {",
+		".config-panel {",
+		".mcp-server-card {",
+		".mcp-tool-list {",
+		".skill-config-card {",
+	} {
+		if !strings.Contains(string(styles), rule) {
+			t.Fatalf("styles.css missing Agent config inventory rule %q", rule)
 		}
 	}
 }
@@ -794,7 +849,7 @@ func TestLayoutPinsConversationAndComposerToDedicatedGridRows(t *testing.T) {
 }
 
 func TestLauncherParsesWebFlags(t *testing.T) {
-	launcher := NewLauncher(nil, nil, RuntimeInfo{}, "")
+	launcher := NewLauncher(nil, nil, nil, RuntimeInfo{}, "")
 	rest, err := launcher.Parse([]string{"--port", "9000", "extra"})
 	if err != nil {
 		t.Fatalf("Parse: %v", err)

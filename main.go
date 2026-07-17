@@ -113,8 +113,16 @@ func main() {
 	if err != nil {
 		log.Fatalf("MCP setup error: %v", err)
 	}
+	mcpServers := mcpruntime.Discover(ctx, mcpResult.Servers, mcpToolsets)
 	if mcpResult.Found {
-		log.Printf("loaded %d MCP server(s)", len(mcpResult.Servers))
+		readyServers, discoveredTools := 0, 0
+		for _, server := range mcpServers {
+			if server.Status == mcpruntime.StatusReady {
+				readyServers++
+			}
+			discoveredTools += len(server.Tools)
+		}
+		log.Printf("loaded %d MCP server(s); discovered %d tool(s) from %d server(s)", len(mcpResult.Servers), discoveredTools, readyServers)
 	} else {
 		log.Printf("no .mcp.json found; starting without MCP servers")
 	}
@@ -144,7 +152,7 @@ func main() {
 		ThinkingMode:    cfg.ThinkingMode,
 		ReasoningEffort: cfg.ReasoningEffort,
 	}
-	l := universal.NewLauncher(console.NewLauncher(), webapp.NewLauncher(titleModel, skillsResult.Skills, runtimeInfo, agentInstruction))
+	l := universal.NewLauncher(console.NewLauncher(), webapp.NewLauncher(titleModel, skillsResult.Skills, mcpServers, runtimeInfo, agentInstruction))
 	if err := l.Execute(ctx, launcherConfig, os.Args[1:]); err != nil {
 		log.Fatalf("run failed: %v\n\n%s", err, l.CommandLineSyntax())
 	}

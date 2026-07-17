@@ -8,14 +8,51 @@ import (
 	"os/exec"
 	"sort"
 	"strings"
+	"sync"
+	"time"
 	"unicode"
 
 	"github.com/hexbee/adkgo-demo/internal/mcpconfig"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"google.golang.org/adk/v2/agent"
+	"google.golang.org/adk/v2/session"
 	"google.golang.org/adk/v2/tool"
 	"google.golang.org/adk/v2/tool/mcptoolset"
+	"google.golang.org/genai"
 )
+
+const (
+	StatusReady       = "ready"
+	StatusUnavailable = "unavailable"
+	discoveryTimeout  = 15 * time.Second
+)
+
+// ToolSummary is the presentation-safe portion of a discovered MCP tool.
+type ToolSummary struct {
+	Name        string `json:"name"`
+	Description string `json:"description"`
+}
+
+// ServerSummary describes an MCP server without exposing credentials,
+// request headers, URL query parameters, or stdio process details.
+type ServerSummary struct {
+	Name   string        `json:"name"`
+	Type   string        `json:"type"`
+	Target string        `json:"target"`
+	Status string        `json:"status"`
+	Tools  []ToolSummary `json:"tools"`
+}
+
+type discoveryContext struct{ context.Context }
+
+func (*discoveryContext) UserContent() *genai.Content          { return nil }
+func (*discoveryContext) InvocationID() string                 { return "mcp-tool-discovery" }
+func (*discoveryContext) AgentName() string                    { return "" }
+func (*discoveryContext) ReadonlyState() session.ReadonlyState { return nil }
+func (*discoveryContext) UserID() string                       { return "" }
+func (*discoveryContext) AppName() string                      { return "" }
+func (*discoveryContext) SessionID() string                    { return "" }
+func (*discoveryContext) Branch() string                       { return "" }
 
 type headerTransport struct {
 	base    http.RoundTripper
@@ -97,6 +134,44 @@ func Build(servers []mcpconfig.Server) ([]tool.Toolset, error) {
 		result = append(result, &namedToolset{name: toolsetName(server.Name), safeEndpoint: server.SafeTarget(), inner: toolset})
 	}
 	return result, nil
+}
+
+// Discover builds a best-effort, presentation-safe inventory of MCP tools.
+// A server that cannot be reached is reported as unavailable without failing
+// discovery for the other configured servers.
+func Discover(ctx context.Context, servers []mcpconfig.Server, toolsets []tool.Toolset) []ServerSummary {
+	summaries := make([]ServerSummary, len(servers))
+	var wait sync.WaitGroup
+	for index, server := range servers {
+		summaries[index] = ServerSummary{
+			Name: server.Name, Type: server.Type, Target: server.SafeTarget(),
+			Status: StatusUnavailable, Tools: []ToolSummary{},
+		}
+		if index >= len(toolsets) || toolsets[index] == nil {
+			continue
+		}
+		wait.Add(1)
+		go func(index int) {
+			defer wait.Done()
+			discoveryCtx, cancel := context.WithTimeout(ctx, discoveryTimeout)
+			defer cancel()
+			discovered, err := toolsets[index].Tools(&discoveryContext{Context: discoveryCtx})
+			if err != nil {
+				return
+			}
+			tools := make([]ToolSummary, 0, len(discovered))
+			for _, discoveredTool := range discovered {
+				tools = append(tools, ToolSummary{
+					Name: discoveredTool.Name(), Description: discoveredTool.Description(),
+				})
+			}
+			sort.Slice(tools, func(i, j int) bool { return tools[i].Name < tools[j].Name })
+			summaries[index].Status = StatusReady
+			summaries[index].Tools = tools
+		}(index)
+	}
+	wait.Wait()
+	return summaries
 }
 
 func buildTransport(server mcpconfig.Server) (mcp.Transport, error) {
