@@ -407,6 +407,7 @@ svg {
   grid-row: 3;
   min-height: 0;
   padding: 34px clamp(24px, 5vw, 70px) 22px;
+  overflow-x: hidden;
   overflow-y: auto;
   overflow-anchor: none;
   scroll-behavior: auto;
@@ -469,7 +470,22 @@ svg {
   background: var(--brand-soft);
 }
 .message.assistant .message-content { max-width: 740px; }
+.message-footer { display: flex; width: min(100%, 740px); min-height: 32px; align-items: center; gap: 10px; margin-top: 12px; padding-top: 9px; border-top: 1px solid color-mix(in srgb, var(--line) 76%, transparent); }
+.token-usage { display: flex; min-width: 0; flex: 1; flex-wrap: wrap; align-items: center; gap: 6px 11px; color: var(--ink-faint); font-size: 10px; line-height: 1.4; }
+.token-metric, .token-context { display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; }
+.token-metric + .token-metric::before { width: 1px; height: 10px; margin-right: 5px; background: var(--line); content: ""; }
+.token-usage strong { color: var(--ink-soft); font: 600 10px/1.4 var(--mono); font-variant-numeric: tabular-nums; }
+.token-context { margin-left: 3px; }
+.token-context-track { width: 52px; height: 4px; overflow: hidden; border-radius: 2px; background: var(--surface-muted); }
+.token-context-track > span { display: block; width: var(--context-remaining); height: 100%; border-radius: inherit; background: var(--brand); transition: width 180ms ease; }
+.token-context.exhausted .token-context-track > span { width: 100%; background: var(--danger); }
+.token-context.exhausted strong, .token-context.exhausted small { color: var(--danger); }
+.token-context small { color: var(--ink-faint); font: 9px/1.4 var(--mono); font-variant-numeric: tabular-nums; }
+.token-call-count { padding-left: 8px; border-left: 1px solid var(--line); white-space: nowrap; }
+.token-usage-unavailable { flex: 1; color: var(--ink-faint); font-size: 10px; }
 .message-actions { display: flex; min-height: 32px; align-items: center; gap: 4px; margin-top: 8px; }
+.message-footer .message-actions { min-height: 28px; margin: 0; }
+.message-footer .message-action-button { width: 28px; height: 28px; }
 .message-action-button { position: relative; display: inline-grid; width: 32px; height: 32px; place-items: center; padding: 0; border: 0; border-radius: 8px; background: transparent; color: var(--ink-faint); cursor: pointer; }
 .message-action-button:hover { background: var(--surface-muted); color: var(--ink); }
 .message-action-button:disabled { cursor: default; opacity: .65; }
@@ -946,6 +962,11 @@ kbd { padding: 1px 3px; border: 1px solid var(--line); border-bottom-color: var(
   .empty-state h2 { font-size: 28px; }
   .suggestion-list button { grid-template-columns: 78px minmax(0, 1fr) 20px; gap: 8px; }
   .message.user .message-content { max-width: 94%; }
+  .message-footer { align-items: flex-end; }
+  .token-usage { gap: 6px 9px; }
+  .token-context { width: 100%; margin: 1px 0 0; }
+  .token-context-track { width: 64px; }
+  .token-call-count { margin-left: auto; }
   .message-mermaid-canvas { min-height: 150px; padding: 12px; }
   .message-mermaid-heading,
   .message-mermaid-source > summary { padding-inline: 11px; }

@@ -103,6 +103,7 @@ const state = {
   mcpServers: null,
   mcpServersLoading: false,
   activeConfigTab: "prompt",
+  runtimeInfo: null,
   skillMatches: [],
   skillActiveIndex: 0,
   skillTriggerRange: null,
@@ -169,6 +170,7 @@ async function bootstrap() {
 
 async function loadRuntimeInfo() {
   const info = await api("/runtime-info");
+  state.runtimeInfo = info;
   els.runtimeModel.textContent = info.modelName || "未知模型";
   els.runtimeBaseURL.textContent = info.baseUrl || "—";
   els.runtimeBaseURL.title = info.baseUrl || "";
@@ -461,7 +463,7 @@ function messagesFromEvents(events) {
       restorePersistedFunctionResponses(parts, messages);
       continue;
     }
-    const meaningful = parts.some((part) => part.text || part.functionCall || part.functionResponse) || event.errorMessage;
+    const meaningful = parts.some((part) => part.text || part.functionCall || part.functionResponse) || event.errorMessage || event.usageMetadata;
     if (!meaningful) continue;
     if (!assistant) {
       assistant = newMessage("assistant", "", event.invocationId || event.id);
@@ -500,6 +502,8 @@ function newMessage(role, text = "", id = crypto.randomUUID()) {
     confirmationMode: "confirm",
     error: "",
     streaming: false,
+    usage: null,
+    usageCalls: [],
     timestamp: Date.now(),
   };
 }
@@ -636,6 +640,8 @@ function messageRenderSignature(message) {
     confirmationMode: message.confirmationMode,
     error: message.error,
     streaming: message.streaming,
+    usage: message.usage,
+    contextWindow: state.runtimeInfo?.contextWindow,
     timestamp: message.timestamp,
   }));
 }
@@ -664,15 +670,82 @@ function renderMessage(message) {
   const error = message.error
     ? `<div class="message-error"><strong>运行没有完成</strong><span>${escapeHTML(message.error)}</span>${state.lastPrompt ? '<br><button class="text-button" type="button" data-retry>重试上次任务</button>' : ""}</div>`
     : "";
+  const usage = !isUser ? renderTokenUsage(message) : "";
   const actions = !isUser && message.text && !message.streaming
     ? `<div class="message-actions" aria-label="回复操作">
         <button class="message-action-button" type="button" data-copy-reply aria-label="复制回复" data-tooltip="复制回复">${icons.copy}</button>
       </div>`
     : "";
+  const footer = usage || actions
+    ? `<footer class="message-footer">${usage}${actions}</footer>`
+    : "";
   return `<article class="message ${isUser ? "user" : "assistant"}" data-message-id="${escapeAttr(message.id)}">
     <div class="message-meta"><span class="author">${isUser ? "你" : "Agent"}</span><time>${formatTime(message.timestamp)}</time>${modeBadge}</div>
-    ${execution}<div class="message-content">${content}</div>${error}${actions}
+    ${execution}<div class="message-content">${content}</div>${error}${footer}
   </article>`;
+}
+
+function renderTokenUsage(message) {
+  const usage = message.usage;
+  if (!usage) {
+    if (message.streaming || message.error || (!message.text && !message.executionItems.length)) return "";
+    return '<span class="token-usage-unavailable" title="服务商没有为本轮返回 usage 数据">Token 用量不可用</span>';
+  }
+
+  const contextWindow = positiveInteger(state.runtimeInfo?.contextWindow);
+  const latestTotal = positiveInteger(usage.latestTotalTokenCount);
+  const hasContext = contextWindow > 0 && latestTotal > 0;
+  const remaining = hasContext ? Math.max(contextWindow - latestTotal, 0) : 0;
+  const remainingPercent = hasContext ? Math.max(0, Math.min(100, remaining / contextWindow * 100)) : 0;
+  const contextLabel = hasContext
+    ? `<span class="token-context${remaining === 0 ? " exhausted" : ""}">
+        <span class="token-context-track" aria-hidden="true"><span style="--context-remaining:${remainingPercent.toFixed(2)}%"></span></span>
+        <span>Context 剩余</span><strong title="${escapeAttr(exactTokenCount(remaining))}">${formatUsageCount(remaining)}</strong><small>${formatPercent(remainingPercent)}</small>
+      </span>`
+    : "";
+  const calls = positiveInteger(usage.callCount);
+  const callLabel = calls > 1
+    ? `<span class="token-call-count" title="本轮消耗为 ${calls} 次模型调用之和；Context 余量按最后一次调用计算">模型 ×${calls}</span>`
+    : "";
+  const accessible = [
+    `上下文输入 ${exactTokenCount(usage.promptTokenCount)} tokens`,
+    `输出 ${exactTokenCount(usage.candidatesTokenCount)} tokens`,
+    `本轮总计 ${exactTokenCount(usage.totalTokenCount)} tokens`,
+    hasContext ? `Context 剩余 ${exactTokenCount(remaining)} tokens，占 ${formatPercent(remainingPercent)}` : "",
+    calls > 1 ? `本轮包含 ${calls} 次模型调用，Context 余量按最后一次调用计算` : "",
+  ].filter(Boolean).join("，");
+
+  return `<div class="token-usage" aria-label="${escapeAttr(accessible)}">
+    <span class="token-metric"><span>输入</span><strong title="${escapeAttr(exactTokenCount(usage.promptTokenCount))}">${formatUsageCount(usage.promptTokenCount)}</strong></span>
+    <span class="token-metric"><span>输出</span><strong title="${escapeAttr(exactTokenCount(usage.candidatesTokenCount))}">${formatUsageCount(usage.candidatesTokenCount)}</strong></span>
+    <span class="token-metric"><span>本轮</span><strong title="${escapeAttr(exactTokenCount(usage.totalTokenCount))}">${formatUsageCount(usage.totalTokenCount)}</strong></span>
+    ${contextLabel}${callLabel}
+  </div>`;
+}
+
+function positiveInteger(value) {
+  const count = Number(value);
+  return Number.isFinite(count) && count > 0 ? Math.round(count) : 0;
+}
+
+function exactTokenCount(value) {
+  return new Intl.NumberFormat().format(Math.max(0, Number(value) || 0));
+}
+
+function formatUsageCount(value) {
+  const count = Math.max(0, Number(value) || 0);
+  if (count < 1000) return exactTokenCount(count);
+  const divisor = count >= 1000000 ? 1000000 : 1000;
+  const suffix = divisor === 1000000 ? "M" : "K";
+  const scaled = count / divisor;
+  const digits = scaled >= 100 ? 0 : scaled >= 10 ? 1 : 2;
+  const formatted = digits > 0 ? scaled.toFixed(digits).replace(/\.?0+$/, "") : scaled.toFixed(0);
+  return `${formatted}${suffix}`;
+}
+
+function formatPercent(value) {
+  const percent = Math.max(0, Math.min(100, Number(value) || 0));
+  return `${percent.toFixed(percent >= 99.95 ? 0 : 1)}%`;
 }
 
 function renderExecution(message) {
@@ -996,11 +1069,46 @@ function processEvent(event, assistant, options = {}) {
     assistant.error = event.errorMessage || event.errorCode;
     if (record) addTimeline("error", "模型返回错误", assistant.error);
   }
-  if (event.usageMetadata) assistant.usage = event.usageMetadata;
+  recordTokenUsage(event, assistant);
   if (!event.partial && visible && record) addTimeline("message", "模型输出", truncate(visible, 90));
   if (render) {
     renderMessages();
   }
+}
+
+function recordTokenUsage(event, assistant) {
+  if (event.partial) return;
+  const usage = normalizeTokenUsage(event.usageMetadata);
+  if (!usage) return;
+  if (!Array.isArray(assistant.usageCalls)) assistant.usageCalls = [];
+
+  const key = event.id || `${event.invocationId || "invocation"}:${event.modelVersion || "model"}:${assistant.usageCalls.length}`;
+  const call = { key, ...usage };
+  const existing = assistant.usageCalls.findIndex((item) => item.key === key);
+  if (existing >= 0) assistant.usageCalls[existing] = call;
+  else assistant.usageCalls.push(call);
+  assistant.usage = summarizeTokenUsage(assistant.usageCalls);
+}
+
+function normalizeTokenUsage(metadata) {
+  if (!metadata || typeof metadata !== "object") return null;
+  const promptTokenCount = positiveInteger(metadata.promptTokenCount);
+  const candidatesTokenCount = positiveInteger(metadata.candidatesTokenCount);
+  const reportedTotal = positiveInteger(metadata.totalTokenCount);
+  const totalTokenCount = reportedTotal || promptTokenCount + candidatesTokenCount;
+  if (totalTokenCount <= 0) return null;
+  return { promptTokenCount, candidatesTokenCount, totalTokenCount };
+}
+
+function summarizeTokenUsage(calls) {
+  const latest = calls[calls.length - 1];
+  return {
+    promptTokenCount: calls.reduce((total, call) => total + call.promptTokenCount, 0),
+    candidatesTokenCount: calls.reduce((total, call) => total + call.candidatesTokenCount, 0),
+    totalTokenCount: calls.reduce((total, call) => total + call.totalTokenCount, 0),
+    latestTotalTokenCount: latest.totalTokenCount,
+    callCount: calls.length,
+  };
 }
 
 function updateThoughtItem(assistant, text, partial) {

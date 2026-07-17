@@ -528,6 +528,14 @@ func TestHandlerServesEmbeddedAssets(t *testing.T) {
 		"renderMarkdown(message.text, message.id, { streaming: message.streaming })",
 		"reconcileMessageElements",
 		"messageRenderSignature",
+		"renderTokenUsage",
+		"recordTokenUsage",
+		"normalizeTokenUsage",
+		"summarizeTokenUsage",
+		"latestTotalTokenCount",
+		"Context 剩余",
+		"模型 ×",
+		"Token 用量不可用",
 		"createMessageElement",
 		"deferMermaid: streaming",
 		`sourceLanguage === "mermaid" && deferMermaid`,
@@ -627,6 +635,24 @@ func TestSkillComposerStylesAreEmbedded(t *testing.T) {
 	} {
 		if !strings.Contains(string(styles), rule) {
 			t.Fatalf("styles.css missing Skill composer rule %q", rule)
+		}
+	}
+}
+
+func TestTokenUsageStylesAreEmbedded(t *testing.T) {
+	styles, err := staticFiles.ReadFile("static/styles.css")
+	if err != nil {
+		t.Fatalf("read embedded styles: %v", err)
+	}
+	for _, rule := range []string{
+		".message-footer {",
+		".token-usage {",
+		".token-context-track {",
+		".token-context.exhausted",
+		".token-usage-unavailable {",
+	} {
+		if !strings.Contains(string(styles), rule) {
+			t.Fatalf("styles.css missing token usage rule %q", rule)
 		}
 	}
 }
