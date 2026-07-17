@@ -17,6 +17,9 @@ const els = {
   messageList: $("#message-list"),
   form: $("#composer-form"),
   input: $("#composer-input"),
+  attachmentStrip: $("#attachment-strip"),
+  attachImages: $("#attach-images"),
+  imageInput: $("#image-input"),
   skillPicker: $("#skill-picker"),
   skillPickerOptions: $("#skill-picker-options"),
   send: $("#send-button"),
@@ -77,13 +80,15 @@ const state = {
   sessions: [],
   currentSession: null,
   messages: [],
+  attachments: [],
+  attachmentReads: 0,
   timeline: [],
   running: false,
   controller: null,
   inspectorOpen: false,
   sidebarCollapsed: localStorage.getItem("adk-workbench-sidebar-collapsed") === "true",
   pendingDeleteId: "",
-  lastPrompt: "",
+  lastSubmission: null,
   toastTimer: null,
   mathRenderFrame: 0,
   codeHighlightFrame: 0,
@@ -121,6 +126,10 @@ const icons = {
 };
 
 const composerMaxLength = Number(els.input.dataset.maxlength) || 12000;
+const maxImageCount = 8;
+const maxImageBytes = 10 * 1024 * 1024;
+const maxImageTotalBytes = 25 * 1024 * 1024;
+const supportedImageTypes = new Set(["image/png", "image/jpeg", "image/webp", "image/gif"]);
 
 function apiPath(path) {
   return `/api${path}`;
@@ -374,8 +383,8 @@ function startDraft() {
   state.messages = [];
   state.timeline = [];
   state.executionDisclosurePreferences.clear();
-  state.lastPrompt = "";
-  clearEditor();
+  state.lastSubmission = null;
+  clearComposer();
   resizeInput();
   renderAll({ forceFollow: true });
   closeSidebar();
@@ -383,8 +392,8 @@ function startDraft() {
 }
 
 function requestNewDraft() {
-  if (state.running) return;
-  if (!editorText().trim()) {
+  if (state.running || state.attachmentReads) return;
+  if (!composerHasDraft()) {
     startDraft();
     return;
   }
@@ -409,7 +418,7 @@ function publishCurrentSession() {
   renderSessions();
 }
 
-async function discardUnpublishedSession(session, prompt) {
+async function discardUnpublishedSession(session, submission) {
   if (!session?.unpublished) return;
   const path = `/apps/${encode(state.appName)}/users/${encode(state.userId)}/sessions/${encode(session.id)}`;
   try {
@@ -422,7 +431,9 @@ async function discardUnpublishedSession(session, prompt) {
   state.messages = [];
   state.timeline = [];
   state.executionDisclosurePreferences.clear();
-  setEditorText(prompt);
+  setEditorText(submission.text);
+  state.attachments = cloneImages(submission.images);
+  renderAttachmentPreview();
   resizeInput();
   renderAll({ forceFollow: true });
   showToast("发送失败，输入内容已保留");
@@ -430,7 +441,7 @@ async function discardUnpublishedSession(session, prompt) {
 }
 
 async function openSession(sessionId) {
-  if (state.running || !sessionId) return;
+  if (state.running || state.attachmentReads || !sessionId) return;
   const path = `/apps/${encode(state.appName)}/users/${encode(state.userId)}/sessions/${encode(sessionId)}`;
   const summary = state.sessions.find((session) => session.id === sessionId);
   state.currentSession = await api(path);
@@ -456,8 +467,11 @@ function messagesFromEvents(events) {
       ? parts.filter((part) => part.text && !part.thought).map((part) => part.text).join("")
       : "";
     if (event.author === "user") {
-      if (userText) {
-        messages.push(newMessage("user", userText, event.id));
+      const images = imagesFromParts(parts);
+      if (userText || images.length) {
+        const user = newMessage("user", userText, event.id);
+        user.images = images;
+        messages.push(user);
         assistant = null;
       }
       restorePersistedFunctionResponses(parts, messages);
@@ -493,11 +507,32 @@ function findMessageWithExecutionItem(messages, itemId) {
   return null;
 }
 
+function imagesFromParts(parts) {
+  const images = [];
+  for (const part of parts) {
+    const blob = part?.inlineData;
+    if (!blob?.data || !supportedImageTypes.has(blob.mimeType)) continue;
+    images.push({
+      id: crypto.randomUUID(),
+      name: blob.displayName || `图片 ${images.length + 1}`,
+      mimeType: blob.mimeType,
+      size: 0,
+      dataURL: `data:${blob.mimeType};base64,${blob.data}`,
+    });
+  }
+  return images;
+}
+
+function cloneImages(images) {
+  return (images || []).map((image) => ({ ...image }));
+}
+
 function newMessage(role, text = "", id = crypto.randomUUID()) {
   return {
     id,
     role,
     text,
+    images: [],
     executionItems: [],
     confirmationMode: "confirm",
     error: "",
@@ -636,6 +671,7 @@ function messageRenderSignature(message) {
   return stableTextHash(JSON.stringify({
     role: message.role,
     text: message.text,
+    images: message.images.map((image) => image.id),
     executionItems: message.executionItems,
     confirmationMode: message.confirmationMode,
     error: message.error,
@@ -662,13 +698,15 @@ function renderMessage(message) {
   const execution = !isUser && message.executionItems.length
     ? renderExecution(message)
     : "";
-  const content = message.text
+  const imageContent = isUser ? renderMessageImages(message.images) : "";
+  const textContent = message.text
     ? renderMarkdown(message.text, message.id, { streaming: message.streaming })
     : message.streaming && !message.executionItems.length
       ? '<span class="typing-cursor" aria-label="正在生成"></span>'
       : "";
+  const content = imageContent + textContent;
   const error = message.error
-    ? `<div class="message-error"><strong>运行没有完成</strong><span>${escapeHTML(message.error)}</span>${state.lastPrompt ? '<br><button class="text-button" type="button" data-retry>重试上次任务</button>' : ""}</div>`
+    ? `<div class="message-error"><strong>运行没有完成</strong><span>${escapeHTML(message.error)}</span>${state.lastSubmission ? '<br><button class="text-button" type="button" data-retry>重试上次任务</button>' : ""}</div>`
     : "";
   const usage = !isUser ? renderTokenUsage(message) : "";
   const actions = !isUser && message.text && !message.streaming
@@ -683,6 +721,15 @@ function renderMessage(message) {
     <div class="message-meta"><span class="author">${isUser ? "你" : "Agent"}</span><time>${formatTime(message.timestamp)}</time>${modeBadge}</div>
     ${execution}<div class="message-content">${content}</div>${error}${footer}
   </article>`;
+}
+
+function renderMessageImages(images) {
+  if (!images?.length) return "";
+  const items = images.map((image, index) => {
+    const label = image.name || `图片 ${index + 1}`;
+    return `<figure class="message-image-item"><img src="${escapeAttr(image.dataURL)}" alt="${escapeAttr(label)}" loading="lazy" decoding="async"></figure>`;
+  }).join("");
+  return `<div class="message-image-grid" role="group" aria-label="${images.length} 张图片">${items}</div>`;
 }
 
 function renderTokenUsage(message) {
@@ -871,13 +918,16 @@ function addTimeline(type, title, detail = "") {
   renderInspector();
 }
 
-async function submitText(text) {
-  const prompt = text.trim();
-  if (!prompt || state.running) return;
+async function submitText(text, imageOverride = null) {
+  const prompt = String(text || "").trim();
+  const images = cloneImages(imageOverride ?? state.attachments);
+  if ((!prompt && !images.length) || state.running || state.attachmentReads) return;
   if (prompt.length > composerMaxLength) {
     showToast(`输入内容不能超过 ${composerMaxLength} 个字符`);
     return;
   }
+  const submission = { text: prompt, images };
+  const parts = messageParts(submission);
   const firstSubmission = !state.currentSession;
   let unpublishedSession = null;
   if (firstSubmission) {
@@ -889,8 +939,9 @@ async function submitText(text) {
     }
   }
   const confirmationMode = els.confirmationMode.value === "auto" ? "auto" : "confirm";
-  state.lastPrompt = prompt;
+  state.lastSubmission = { text: prompt, images: cloneImages(images) };
   const user = newMessage("user", prompt);
+  user.images = cloneImages(images);
   const assistant = newMessage("assistant");
   user.confirmationMode = confirmationMode;
   assistant.confirmationMode = confirmationMode;
@@ -900,16 +951,34 @@ async function submitText(text) {
   setConfirmationModeMenu(false);
   state.messages.push(user, assistant);
   state.currentSession.events = state.currentSession.events || [];
-  state.currentSession.events.push({ author: "user", content: { parts: [{ text: prompt }] } });
-  if (!persistentSessionTitle(state.currentSession)) state.currentSession.localTitle = prompt;
-  clearEditor();
+  state.currentSession.events.push({ author: "user", content: { parts } });
+  if (!persistentSessionTitle(state.currentSession)) {
+    state.currentSession.localTitle = prompt || `${images.length} 张图片`;
+  }
+  clearComposer();
   resizeInput();
   updateTaskTitle();
   renderSessions();
   renderMessages({ forceFollow: true });
-  addTimeline("message", "任务已提交", truncate(prompt, 100));
-  const accepted = await runAgent({ role: "user", parts: [{ text: prompt }] }, assistant);
-  if (firstSubmission && !accepted) await discardUnpublishedSession(unpublishedSession, prompt);
+  const detail = prompt || `已发送 ${images.length} 张图片`;
+  addTimeline("message", "任务已提交", truncate(detail, 100));
+  const accepted = await runAgent({ role: "user", parts }, assistant);
+  if (firstSubmission && !accepted) await discardUnpublishedSession(unpublishedSession, submission);
+}
+
+function messageParts(submission) {
+  const parts = [];
+  if (submission.text) parts.push({ text: submission.text });
+  for (const image of submission.images) {
+    parts.push({
+      inlineData: {
+        mimeType: image.mimeType,
+        data: image.dataURL.slice(image.dataURL.indexOf(",") + 1),
+        displayName: image.name,
+      },
+    });
+  }
+  return parts;
 }
 
 async function runAgent(content, assistant, functionCallEventId = "") {
@@ -1257,7 +1326,10 @@ function showConnectionError(error) {
 }
 
 function updateComposer() {
-  els.send.disabled = state.running || isEditorDisabled() || !editorText().trim();
+  const hasContent = Boolean(editorText().trim() || state.attachments.length);
+  els.send.disabled = state.running || isEditorDisabled() || state.attachmentReads > 0 || !hasContent;
+  els.attachImages.disabled = state.running || isEditorDisabled() || state.attachmentReads > 0 || state.attachments.length >= maxImageCount;
+  els.newSession.disabled = state.running || state.attachmentReads > 0;
 }
 
 function updateConfirmationMode() {
@@ -1299,6 +1371,8 @@ function isEditorDisabled() {
 function setEditorDisabled(disabled) {
   els.input.contentEditable = String(!disabled);
   els.input.setAttribute("aria-disabled", String(Boolean(disabled)));
+  els.attachImages.disabled = Boolean(disabled);
+  els.imageInput.disabled = Boolean(disabled);
   if (disabled) closeSkillPicker();
 }
 
@@ -1342,6 +1416,99 @@ function clearEditor() {
   els.input.replaceChildren();
   closeSkillPicker();
   updateComposer();
+}
+
+function clearComposer() {
+  clearEditor();
+  state.attachments = [];
+  renderAttachmentPreview();
+  updateComposer();
+}
+
+function composerHasDraft() {
+  return Boolean(editorText().trim() || state.attachments.length);
+}
+
+function renderAttachmentPreview() {
+  els.attachmentStrip.hidden = state.attachments.length === 0;
+  els.attachmentStrip.innerHTML = state.attachments.map((image, index) => `
+    <div class="attachment-card" role="listitem">
+      <img src="${escapeAttr(image.dataURL)}" alt="${escapeAttr(image.name || `图片 ${index + 1}`)}">
+      <button type="button" data-remove-attachment="${escapeAttr(image.id)}" aria-label="移除图片：${escapeAttr(image.name || `图片 ${index + 1}`)}">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m7 7 10 10M17 7 7 17"/></svg>
+      </button>
+    </div>
+  `).join("");
+}
+
+async function addImageFiles(files) {
+  if (state.running || isEditorDisabled()) return;
+  const candidates = [...(files || [])];
+  if (!candidates.length) return;
+  const rejected = [];
+  state.attachmentReads += 1;
+  updateComposer();
+  try {
+    for (const file of candidates) {
+      if (state.attachments.length >= maxImageCount) {
+        rejected.push(`最多添加 ${maxImageCount} 张图片`);
+        break;
+      }
+      if (!supportedImageTypes.has(file.type)) {
+        rejected.push(`${file.name || "该文件"}的格式不支持`);
+        continue;
+      }
+      if (file.size > maxImageBytes) {
+        rejected.push(`${file.name || "该图片"}超过 10 MB`);
+        continue;
+      }
+      const currentBytes = state.attachments.reduce((total, image) => total + image.size, 0);
+      if (currentBytes + file.size > maxImageTotalBytes) {
+        rejected.push("图片合计不能超过 25 MB");
+        break;
+      }
+      try {
+        const dataURL = await readImageFile(file);
+        state.attachments.push({
+          id: crypto.randomUUID(),
+          name: file.name || `粘贴的图片 ${state.attachments.length + 1}`,
+          mimeType: file.type,
+          size: file.size,
+          dataURL,
+        });
+      } catch (_) {
+        rejected.push(`${file.name || "该图片"}读取失败`);
+      }
+    }
+  } finally {
+    state.attachmentReads -= 1;
+    renderAttachmentPreview();
+    updateComposer();
+  }
+  if (rejected.length) {
+    const extra = rejected.length > 1 ? `，另有 ${rejected.length - 1} 个问题` : "";
+    showToast(`${rejected[0]}${extra}`);
+  }
+}
+
+function readImageFile(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.addEventListener("load", () => {
+      const result = typeof reader.result === "string" ? reader.result : "";
+      if (result.startsWith(`data:${file.type};base64,`)) resolve(result);
+      else reject(new Error("invalid image data"));
+    });
+    reader.addEventListener("error", () => reject(reader.error || new Error("read failed")));
+    reader.readAsDataURL(file);
+  });
+}
+
+function removeAttachment(id) {
+  state.attachments = state.attachments.filter((image) => image.id !== id);
+  renderAttachmentPreview();
+  updateComposer();
+  requestAnimationFrame(() => els.input.focus());
 }
 
 function skillDisplayName(name) {
@@ -2321,6 +2488,8 @@ els.input.addEventListener("beforeinput", (event) => {
 els.input.addEventListener("paste", (event) => {
   event.preventDefault();
   const text = event.clipboardData?.getData("text/plain") || "";
+  const images = [...(event.clipboardData?.files || [])].filter((file) => file.type.startsWith("image/"));
+  if (images.length) addImageFiles(images);
   const selectedLength = window.getSelection()?.toString().length || 0;
   const available = Math.max(0, composerMaxLength - editorText().length + selectedLength);
   insertPlainText(text.slice(0, available));
@@ -2328,9 +2497,34 @@ els.input.addEventListener("paste", (event) => {
   resizeInput();
   updateSkillPicker();
 });
-els.input.addEventListener("drop", (event) => {
+els.attachImages.addEventListener("click", () => els.imageInput.click());
+els.imageInput.addEventListener("change", () => {
+  addImageFiles(els.imageInput.files);
+  els.imageInput.value = "";
+});
+els.attachmentStrip.addEventListener("click", (event) => {
+  const remove = event.target.closest("[data-remove-attachment]");
+  if (remove) removeAttachment(remove.dataset.removeAttachment);
+});
+els.form.addEventListener("dragover", (event) => {
+  if (![...(event.dataTransfer?.types || [])].includes("Files") || state.running) return;
   event.preventDefault();
+  event.dataTransfer.dropEffect = "copy";
+  els.form.classList.add("dragging-images");
+});
+els.form.addEventListener("dragleave", (event) => {
+  if (!els.form.contains(event.relatedTarget)) els.form.classList.remove("dragging-images");
+});
+els.form.addEventListener("drop", (event) => {
+  event.preventDefault();
+  els.form.classList.remove("dragging-images");
+  if (state.running) return;
   els.input.focus();
+  const images = [...(event.dataTransfer?.files || [])].filter((file) => file.type.startsWith("image/"));
+  if (images.length) {
+    addImageFiles(images);
+    return;
+  }
   const text = event.dataTransfer?.getData("text/plain") || "";
   const available = Math.max(0, composerMaxLength - editorText().length);
   insertPlainText(text.slice(0, available));
@@ -2481,8 +2675,8 @@ els.messageList.addEventListener("click", (event) => {
       confirmation.dataset.confirmEvent,
     );
   }
-  if (event.target.closest("[data-retry]") && state.lastPrompt) {
-    submitText(state.lastPrompt);
+  if (event.target.closest("[data-retry]") && state.lastSubmission) {
+    submitText(state.lastSubmission.text, state.lastSubmission.images);
   }
 });
 

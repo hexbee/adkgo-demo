@@ -27,7 +27,7 @@ THINKING_MODE=auto
 go run . web
 ```
 
-浏览器打开 `http://localhost:8080`。这个界面使用固定、可审计的产品组件呈现会话、流式回答、模型思考、工具调用与人工确认，不再加载 ADK 自带 Web UI。若只需要终端交互，仍可运行 `go run . console`。
+浏览器打开 `http://localhost:8080`。这个界面使用固定、可审计的产品组件呈现会话、流式回答、模型思考、工具调用与人工确认，不再加载 ADK 自带 Web UI。任务输入框支持选择、粘贴或拖入多张图片，并在继续输入文字后将图片和文字作为同一个多模态消息发送；当前支持 PNG、JPEG、WebP 和 GIF，最多 8 张、单张 10 MB、合计 25 MB。若只需要终端交互，仍可运行 `go run . console`。
 
 Web Workbench 默认使用 SQLite 将会话和聊天事件保存在用户目录的 `~/.adk/sessions.db`，重启进程后仍可继续访问。可以通过参数指定其他位置，或临时切回仅内存存储：
 

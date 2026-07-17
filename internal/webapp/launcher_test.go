@@ -371,6 +371,11 @@ func TestHandlerServesWorkbenchWithSecurityHeaders(t *testing.T) {
 			t.Fatalf("web app body missing Skill composer marker %q", marker)
 		}
 	}
+	for _, marker := range []string{`id="attachment-strip"`, `id="image-input"`, `accept="image/png,image/jpeg,image/webp,image/gif"`, `id="attach-images"`, "添加图片"} {
+		if !strings.Contains(recorder.Body.String(), marker) {
+			t.Fatalf("web app body missing multimodal composer marker %q", marker)
+		}
+	}
 	for _, marker := range []string{`id="discard-draft-dialog"`, "放弃未发送的内容？", "继续编辑", "放弃并新建"} {
 		if !strings.Contains(recorder.Body.String(), marker) {
 			t.Fatalf("web app body missing draft protection marker %q", marker)
@@ -585,6 +590,12 @@ func TestHandlerServesEmbeddedAssets(t *testing.T) {
 		"findSkillTrigger",
 		"createSkillMention",
 		"deleteAdjacentSkill",
+		"addImageFiles",
+		"renderAttachmentPreview",
+		"renderMessageImages",
+		"imagesFromParts",
+		"inlineData",
+		"maxImageCount",
 		"submitText(editorText())",
 	} {
 		if !strings.Contains(recorder.Body.String(), marker) {
@@ -632,6 +643,10 @@ func TestSkillComposerStylesAreEmbedded(t *testing.T) {
 		".skill-mention {",
 		".skill-picker {",
 		`.skill-option[aria-selected="true"]`,
+		".attachment-strip {",
+		".attachment-card {",
+		".attachment-button {",
+		".message-image-grid {",
 	} {
 		if !strings.Contains(string(styles), rule) {
 			t.Fatalf("styles.css missing Skill composer rule %q", rule)

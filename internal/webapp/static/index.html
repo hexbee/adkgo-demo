@@ -134,9 +134,14 @@
             <div class="skill-picker-heading"><strong>Skills</strong><span>输入名称筛选</span></div>
             <div id="skill-picker-options"></div>
           </div>
+          <div class="attachment-strip" id="attachment-strip" role="list" aria-label="待发送图片" aria-live="polite" hidden></div>
           <div class="composer-input" id="composer-input" contenteditable="true" role="textbox" aria-multiline="true" aria-autocomplete="list" aria-controls="skill-picker" aria-expanded="false" aria-labelledby="composer-label" aria-describedby="composer-hint" data-placeholder="描述目标，输入 $ 调用 Skill…" data-maxlength="12000" spellcheck="true"></div>
           <div class="composer-footer">
             <div class="composer-options">
+              <input id="image-input" type="file" accept="image/png,image/jpeg,image/webp,image/gif" multiple hidden>
+              <button class="attachment-button" id="attach-images" type="button" aria-label="添加图片" title="添加图片（最多 8 张）">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
+              </button>
               <input id="confirmation-mode" type="hidden" value="confirm">
               <button class="execution-mode-control" id="execution-mode-control" type="button" aria-haspopup="menu" aria-controls="confirmation-mode-menu" aria-expanded="false">
                 <svg class="mode-shield" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3 5.5 5.6v5.5c0 4.1 2.6 7.8 6.5 9.2 3.9-1.4 6.5-5.1 6.5-9.2V5.6L12 3Z"/><path d="m9.2 11.8 1.8 1.8 3.9-4"/></svg>
